@@ -1,0 +1,74 @@
+<eww>
+  <definitions>
+    <def name="quote">
+      <box orientation="v" space-evenly="false" class="quote-box">
+        <label class="quote-main" halign="start" text="{{quote}}{{quote-gen}}" wrap="true" width="25"/>
+        <label class="quote-tail" halign="start" text="{{quote-tail}}" wrap="true" width="25"/>
+        <label class="quote-author" text="- {{author-quote}}" halign="end"/>
+      </box>
+    </def>
+
+
+     <def name="myrss">
+      <box orientation="v" space-evenly="true" class="myrss-box">
+        <box  orientation="v" space-evenly="false" class="myrss-title-box">
+          <label class="myrss-title" halign="center" text="World News {{myrss-download}}" />
+        </box>
+        <button class="myrss-entry" halign="start" onclick="firefox {{myrss-link-0}}" > <label class="myrssentry-text" halign="start" text="{{myrss-entry-0}}" /> </button>
+        <button class="myrss-entry" halign="start" onclick="firefox {{myrss-link-1}}" > <label class="myrssentry-text" halign="start" text="{{myrss-entry-1}}" /> </button>
+        <button class="myrss-entry" halign="start" onclick="firefox {{myrss-link-2}}" > <label class="myrssentry-text" halign="start" text="{{myrss-entry-2}}" /> </button>
+        <button class="myrss-entry" halign="start" onclick="firefox {{myrss-link-3}}" > <label class="myrssentry-text" halign="start" text="{{myrss-entry-3}}" /> </button>
+        <button class="myrss-entry" halign="start" onclick="firefox {{myrss-link-4}}" > <label class="myrssentry-text" halign="start" text="{{myrss-entry-4}}" /> </button>
+      </box>
+    </def>
+  </definitions>
+
+  <variables>
+
+    <!-- RSS Feed vars -->
+    <script-var name="myrss-download" interval="60m">~/.config/eww/scripts/rss download </script-var>
+
+
+
+    <script-var name="myrss-entry-0" interval="60m">~/.config/eww/scripts/rss entry --index=0 --max_length=120 </script-var>
+    <script-var name="myrss-link-0" interval="60m">~/.config/eww/scripts/rss link --index=0 </script-var>
+
+    <script-var name="myrss-entry-1" interval="60m">~/.config/eww/scripts/rss entry --index=1 --max_length=120 </script-var>
+    <script-var name="myrss-link-1" interval="60m">~/.config/eww/scripts/rss link --index=1 </script-var>
+
+    <script-var name="myrss-entry-2" interval="60m">~/.config/eww/scripts/rss entry --index=2 --max_length=120 </script-var>
+    <script-var name="myrss-link-2" interval="60m">~/.config/eww/scripts/rss link --index=2 </script-var>
+
+    <script-var name="myrss-entry-3" interval="60m">~/.config/eww/scripts/rss entry --index=3 --max_length=120 </script-var>
+    <script-var name="myrss-link-3" interval="60m">~/.config/eww/scripts/rss link --index=3 </script-var>
+
+    <script-var name="myrss-entry-4" interval="60m">~/.config/eww/scripts/rss entry --index=4 --max_length=120 </script-var>
+    <script-var name="myrss-link-4" interval="60m">~/.config/eww/scripts/rss link --index=4 </script-var>
+
+    <!-- Quote vars -->
+    <script-var name="author-quote" interval="10m">cat /tmp/xmonad/quotes/author</script-var>
+    <script-var name="quote" interval="10m">cat /tmp/xmonad/quotes/quote</script-var>
+    <script-var name="quote-gen" interval="30m">~/.config/eww/scripts/quotes</script-var>
+    <script-var name="quote-tail" interval="10m">cat /tmp/xmonad/quotes/quote-tail</script-var>
+
+
+  </variables>
+
+  <windows>
+
+    <window name="quote">
+      <geometry x="1260px" y="50px" width="630px" height="120px"/>
+      <widget>
+        <quote/>
+      </widget>
+    </window>
+
+    <window name="myrss">
+      <geometry x="30px" y="50px" width="800px" height="255px"/>
+      <widget>
+        <myrss />
+      </widget>
+    </window>
+
+  </windows>
+</eww>

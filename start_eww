@@ -1,0 +1,9 @@
+#!/bin/bash
+
+## Run eww daemon if not running already
+if [[ ! `pidof eww` ]]; then
+	eww daemon
+	sleep 5
+fi 
+
+eww open-many myrss quote mail

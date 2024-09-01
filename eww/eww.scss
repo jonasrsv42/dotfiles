@@ -1,0 +1,105 @@
+
+*{
+	all: unset;
+	font-family: feather;
+	font-family: Iosevka;
+}
+
+.genwin {
+	background-color: #2E3440;
+	border-radius: 16px;
+}
+
+window {
+  background-color: #121212;
+  //background-color: #080a10;
+  //background-color: #ffffff; 
+	color: #ffd5cd;
+  font-family: Museo Sans;
+}
+
+button {
+  all: unset;
+  background-color: #121212;
+  padding: 10px;
+}
+
+.quote-main {
+  font-size: 18px;
+  font-weight: bold;
+  margin-top: 20px;
+  // margin-bottom: 20px;
+  margin-left: 20px;
+  color: #A5b3c0;
+}
+.quote-author {
+  font-size: 18px;
+  margin-right: 30px;
+  margin-bottom: 10px;
+  color: #84afdb;
+}
+.quote-tail {
+  font-size: 18px;
+  font-weight: bold;
+  // margin-top: 20px;
+  margin-bottom: 10px;
+  margin-left: 20px;
+  color: #A5b3c0;
+}
+
+.quote-box {
+  // margin: 5px;
+  //border-radius: 10px;
+}
+
+
+//RSS
+
+.myrss-title {
+  margin-top: 10px;
+  font-size: 22px;
+  color: #ff581a;
+}
+
+.myrssentry-text {
+  font-size: 13px;
+  color: #84afdb;
+}
+
+.myrss-entry {
+}
+
+
+.iconweb, .iconmail {
+	//color: #FFFFFF;
+	font-family: Iosevka Nerd Font;
+	font-size : 70px;
+	font-weight : normal;
+}
+
+.mail-text {
+  color: #eee;
+  font-size: 40px;
+}
+//.iconmail {
+	//color: #DF584E;
+//}
+
+
+//.mail {
+	//background-color: #FFFFFF;
+	//border-radius: 16px;
+//}
+
+//.mailbox {
+	//background-color: #E5E5E5;
+	//border-radius: 10px;
+	//margin: 48px 0px 48px 0px;
+//}
+//.label_mails {
+	//color: #404040;
+	//font-size : 32px;
+	//font-weight : bold;
+	//margin: 0px 12px 0px 12px;
+//}
+

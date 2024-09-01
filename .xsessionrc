@@ -1,0 +1,25 @@
+#!/bin/bash
+
+# Load resources
+
+xrdb -merge .Xresources
+
+# Fire up apps
+
+xscreensaver -no-splash &
+
+# Power manager in xmobar
+xfce4-power-manager &
+
+
+
+if [ -x /usr/bin/nm-applet ] ; then
+   nm-applet --sm-disable &
+fi
+
+# Start GPU info polling for xmobar
+gpu_info &
+picom -b
+
+exec xmonad
+

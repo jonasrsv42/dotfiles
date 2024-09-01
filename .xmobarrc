@@ -1,0 +1,45 @@
+Config { font = "FiraCode Normal 14"
+        , borderColor = "black"
+        , border = NoBorder
+        , bgColor = "#080a10"
+        , fgColor = "white"
+        , alpha=220
+        , position = TopH 22
+        , overrideRedirect = True,
+        , allDesktops = True,
+        , hideOnStart = False,
+        , persistent = True,
+        , commands = [
+           Run Date "%a %b %_d %Y %H:%M:%S" "date" 10
+           , Run Battery        [ "--template" , "<acstatus>"
+                               , "--Low"      , "10"        -- units: %
+                               , "--High"     , "80"        -- units: %
+                               , "--low"      , "red"
+                               , "--normal"   , "orange"
+                               , "--high"     , "green"
+
+                               , "--" -- battery specific options
+                               -- discharging status
+                               , "-o" , "󰁹 <left>% (<timeleft>)"
+                               -- AC "on" status
+                               , "-O" , "<fc=#dAA520>󰂄</fc>"
+
+                               -- charged status
+                               , "-i" , "<fc=#00A000>󱟢</fc>"
+                             ] 50
+          , Run Volume "default" "Master" [
+            "--template", "Vol <volume>% "
+
+          ] 10
+
+          , Run DiskIO [("/", "<read> <write>"), ("sdb1", "<total>")] ["-w", "4"] 10
+          , Run PipeReader "/home/jonasrsv/.pipes/gpu_status" "gpu_status"
+          , Run DynNetwork  ["-w", "3", "--", "--devices", "wlp3s0"] 10
+          , Run Cpu ["-w", "3", "-L","3","-H","50","--normal","green","--high","red"] 10
+          , Run StdinReader
+            
+        ]
+        , sepChar = "%"
+        , alignSep = "}{"
+        , template =  " %battery% | %cpu% | <action=`kitty nmtui` button=12345>%dynnetwork%</action> | <fc=#6169FF> </fc> %diskio% | <fc=#bfe3b4>Gpu</fc> %gpu_status% } %StdinReader% {  %default:Master% <action=`increase_volume`><fc=#bfe3b4></fc></action>  <action=`decrease_volume`><fc=#FF6961>󰝞</fc></action>  <fc=#38bf71>%date%</fc>" }
+
