@@ -29,6 +29,22 @@ then
   exit 1
 fi
 
+if ! command -v kitty
+then
+  echo "${fg_red}Kitty not found Please install it${fg_reset}"
+  echo "See:"
+  echo "      https://sw.kovidgoyal.net/kitty/binary/"
+  exit 1
+fi
+
+KITTY_CONFIG=$HOME/.config/kitty/kitty.conf
+if [ ! -f $KITTY_CONFIG ]; then
+  echo "${fg_green} Linking $HOME/dotfiles/kitty.conf -> $KITTY_CONFIG ${reset}"
+  ln -s $HOME/dotfiles/kitty.conf $KITTY_CONFIG 
+else 
+  echo "${fg_magenta} $KITTY_CONFIG already exists - skipping... ${reset}"
+fi
+
 ZSHRC_PATH=$HOME/.zshrc
 if [ ! -f $ZSHRC_PATH ]; then
   echo "${fg_green} Linking $HOME/dotfiles/.zshrc -> $ZSHRC_PATH ${reset}"
