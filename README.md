@@ -1,2 +1,2 @@
-Run setup.sh
+See setup.sh
 
