@@ -11,13 +11,13 @@ Plugin 'VundleVim/Vundle.vim'
 Plugin 'kkoomen/vim-doge' " Auto doc comment
 Plugin 'scrooloose/nerdcommenter' "Auto comment
 
-Plugin 'onsails/lspkind.nvim'
 
 Plugin 'windwp/nvim-autopairs'
 Plugin 'nvim-telescope/telescope.nvim'
 Plugin 'nvim-lua/plenary.nvim'
 
 " Neovim LSP
+Plugin 'onsails/lspkind.nvim'
 Plugin 'hrsh7th/nvim-cmp'
 Plugin 'hrsh7th/cmp-buffer'
 Plugin 'hrsh7th/cmp-path'
@@ -25,11 +25,9 @@ Plugin 'hrsh7th/cmp-cmdline'
 Plugin 'hrsh7th/cmp-nvim-lsp'
 Plugin 'hrsh7th/cmp-nvim-lsp-signature-help'
 Plugin 'neovim/nvim-lspconfig'
+Plugin 'nvimtools/none-ls.nvim'
 
 Plugin 'simrat39/rust-tools.nvim'
-
-Plugin 'hrsh7th/vim-vsnip'
-Plugin 'hrsh7th/vim-vsnip-integ'
 
 Plugin 'https://gitlab.com/HiPhish/rainbow-delimiters.nvim'
 
@@ -126,7 +124,6 @@ experimental = {
 snippet = {
   -- REQUIRED - you must specify a snippet engine
   expand = function(args)
-  vim.fn["vsnip#anonymous"](args.body) -- For `vsnip` users.
   end,
   },
   window = {
@@ -140,7 +137,6 @@ snippet = {
   sources = cmp.config.sources({
       { name = 'nvim_lsp' },
       { name = 'nvim_lsp_signature_help' },
-      { name = 'vsnip' }, -- For vsnip users.
     }, {
       { name = 'buffer' },
   }),
@@ -223,7 +219,7 @@ server = {
       autopep8 = { enabled = false },
       yapf = { enabled = false },
       -- linter options
-      pylint = { enabled = true, executable = "pylint" },
+      pylint = { enabled = false, executable = "pylint" },
       pyflakes = { enabled = false },
       pycodestyle = { enabled = false },
       -- type checker
@@ -250,6 +246,24 @@ require'lspconfig'.clangd.setup {
 }
 
 
+vim.diagnostic.config({  -- https://neovim.io/doc/user/diagnostic.html
+    virtual_text = true,
+    signs = false,
+    underline = true,
+})
+
+
+local null_ls = require("null-ls")
+
+local sources = {
+    null_ls.builtins.formatting.isort,
+    null_ls.builtins.formatting.black,
+}
+
+null_ls.setup({
+    sources = sources,
+})
+
 EOF
 
 nnoremap <silent> <leader>F <cmd>lua vim.lsp.buf.format()<CR>
@@ -260,15 +274,11 @@ nnoremap <silent> <C-space> <cmd>lua vim.lsp.buf.code_action()<CR>
 nnoremap <silent> <C-s> <cmd>lua vim.lsp.buf.signature_help()<CR>
 
 nnoremap <C-f> :Telescope find_files<CR>
-nnoremap <leader>f :Telescope grep_string<CR>
+nnoremap <C-g> :Telescope grep_string<CR>
 
 nnoremap <C-t> :Telescope<CR>
 
 
-imap <expr> <Tab>   vsnip#jumpable(1)   ? '<Plug>(vsnip-jump-next)'      : '<Tab>'
-smap <expr> <Tab>   vsnip#jumpable(1)   ? '<Plug>(vsnip-jump-next)'      : '<Tab>'
-imap <expr> <S-Tab> vsnip#jumpable(-1)  ? '<Plug>(vsnip-jump-prev)'      : '<S-Tab>'
-smap <expr> <S-Tab> vsnip#jumpable(-1)  ? '<Plug>(vsnip-jump-prev)'      : '<S-Tab>'
 
 
 set backupdir=/home/jonasrsv/.backups
@@ -311,7 +321,7 @@ set autoread "Not Sure But useful apparently"
 
 set showmatch
 
-"Default Indentation"
+" Default Indentation
 set tabstop=2 "not sure"
 set shiftwidth=2  "tab width"
 set expandtab "Convert tab to spaces"
@@ -321,7 +331,7 @@ set nu
 " window splits are automatically on right now"
 set splitright
 
-autocmd BufReadPre,BufNewFile * let b:did_ftplugin = 1
+" autocmd BufReadPre,BufNewFile * let b:did_ftplugin = 1
 
 set termguicolors
 colo mycolo
@@ -360,87 +370,12 @@ map Z zz
 nnoremap L Lzz
 nnoremap H Hzz
 
-"For syncing clipboard on unix systems with xclip"
-
-map <C-y> yy \| :call system("xclip -selection clipboard -in", @0)<CR>
-map <C-p> :r !xclip -selection clipboard -o<CR>
-
-
-"stty -ixon IS NEEDED FOR C-s binding put in *rc
-
-
-"highlight StatusLine guibg=#00000 guifg=#b8ff73
-"highlight QuickFixLine term=bold,underline cterm=bold,underline gui=bold,underline
-"highlight Folded guibg=#3a3c3f guifg=#c0c4ce
-"hi FoldColumn guifg=#00000 guibg=#00000
-"hi SignColumn guifg=#00000 guibg=#00000
-
-
 nnoremap tb :TagbarToggle<CR>
 
-
-"nnoremap  gg=G<C-o><C-o>zz"
 nnoremap <C-j> :lua vim.diagnostic.goto_next()<CR>zz
 nnoremap <C-k> :lua vim.diagnostic.goto_prev()<CR>zz
 
-command! Make execute "make " . expand("%") . " | redraw! | vertical cope | vertical resize 100 | wincmd p"
-
-nnoremap <C-m> :Make<CR>
-
-
-au BufRead,BufNewFile *.journal set filetype=journal
-
 au FileType netrw setl bufhidden=delete
-au FileType go setlocal equalprg=gofmt
-au FileType javascript setlocal equalprg=js-beautify\ --stdin
-au FileType haskell setlocal equalprg=stylish-haskell
-au FileType json setlocal equalprg=js-beautify
-
-au FileType python setlocal makeprg=python3\ %
-au FileType python setlocal equalprg=cookicookie
-au FileType python compiler python
-au FileType python nnoremap <F10> :silent exec "!python3 %"<CR>
 
 au FileType python set tabstop=4
 au FileType python set shiftwidth=4  
-
-au FileType html nnoremap <buffer> <leader><F10> :!xdg-open %<CR>
-
-au FileType cpp setlocal equalprg=clang-format
-
-au FileType rust setlocal makeprg=cargo\ run\ %
-
-
-
-
-func RenderTex()
-  silent! call system("latexmk -pdf ")
-endfun
-
-func WritingMode()
-  setlocal statusline=\
-  setlocal nonu
-  setlocal nornu
-  setlocal colorcolumn=
-  setlocal laststatus=0
-  hi FoldColumn guifg=#00000 guibg=#00000
-  hi SignColumn guifg=#00000 guibg=#00000
-  set wm=20
-  set spell
-endfun
-
-augroup latex
-  autocmd!
-  au BufWritePost *.tex call RenderTex()
-  au FileType tex call WritingMode()
-augroup END
-
-augroup remember_folds
-  autocmd!
-  autocmd BufWinLeave *.py mkview
-  autocmd BufWinLeave *.go mkview
-  autocmd BufWinEnter *.py silent! loadview
-  autocmd BufWinEnter *.go silent! loadview
-augroup END
-
-
