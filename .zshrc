@@ -112,7 +112,7 @@ ezsh() {
 }
 
 evim() {
-  vim ~/.vimrc
+  vim ~/.config/nvim/init.vim
 }
 
 eenv() {

@@ -125,6 +125,11 @@ else
   echo "${fg_magenta} $VIM_PATH already exists - skipping... ${reset}"
 fi
 
+VIM_LUA_PATH=$HOME/.config/nvim/lua
+if [ ! -d $VIM_LUA_PATH ]; then
+  echo "${fg_green} Linking $HOME/dotfiles/lua -> $VIM_LUA_PATH"
+ ln -s $HOME/dotfiles/lua $HOME/.config/nvim/lua
+fi
 
 VIM_VUNDLE_PATH=$HOME/.vim/bundle/Vundle.vim
 if [ ! -f $VIM_VUNDLE_PATH/README.md ]; then
