@@ -198,3 +198,5 @@ single () {
   xrandr --output HDMI-2 --off
 }
 
+
+. /home/jonasrsv/.default_python/bin/activate
