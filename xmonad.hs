@@ -123,7 +123,7 @@ myPromptBackgroundHColor = myPromptBackgroundColor
 myPromptContentColor = "#38bf71"
 myPromptContentHColor = "#CE8CE9"
 
-myPromptFont = "xft:FiraCode Nerd Font:regular:pixelsize=15"
+myPromptFont = "xft:FiraCode Nerd Font:regular:pixelsize=22"
 
 myXPromptSearchPredicate :: String -> String -> Bool
 myXPromptSearchPredicate typed alt = True
@@ -140,7 +140,7 @@ myXPromptConfig =
   XPC
     { promptBorderWidth = 0
     , alwaysHighlight = True
-    , height = 35
+    , height = 45
     , complCaseSensitivity = CaseSensitive
     , historySize = 128
     , font = myPromptFont
