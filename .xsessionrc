@@ -19,7 +19,6 @@ fi
 
 # Start GPU info polling for xmobar
 gpu_info &
-picom -b
 
 exec xmonad
 
