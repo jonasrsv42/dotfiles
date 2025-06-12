@@ -392,7 +392,7 @@ defaults = def
 
            , ((modm, xK_F10), spawn "shutter")
            , ((modm, xK_F9), spawn "systemctl suspend")
-           , ((modm, xK_F12), spawn "shutdown -h now")
+           , ((modm, xK_F12), spawn "poweroff")
 
            -- Change Keyboard Layout
            , ((modm, xK_s), submap . M.fromList $ [

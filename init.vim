@@ -29,8 +29,7 @@ Plugin 'hrsh7th/cmp-nvim-lsp'
 Plugin 'hrsh7th/cmp-nvim-lsp-signature-help'
 Plugin 'neovim/nvim-lspconfig'
 Plugin 'nvimtools/none-ls.nvim'
-
-Plugin 'simrat39/rust-tools.nvim'
+Plugin 'xzbdmw/colorful-menu.nvim'
 
 Plugin 'https://gitlab.com/HiPhish/rainbow-delimiters.nvim'
 
@@ -41,7 +40,6 @@ Plugin 'gabrielsimoes/cfparser.vim'
 Plugin 'ryanoasis/vim-devicons'
 
 " Navigation
-Plugin 'majutsushi/tagbar'
 Plugin 'ms-jpq/chadtree'
 
 " Language Specific
@@ -62,6 +60,12 @@ Plugin 'MunifTanjim/nui.nvim'
 Plugin 'rcarriga/nvim-notify'
 Plugin 'folke/noice.nvim'
 
+Plugin 'stevearc/aerial.nvim'
+Plugin 'stevearc/stickybuf.nvim'
+
+" Markdown viewer
+Plugin 'OXY2DEV/markview.nvim'
+
 call vundle#end()            " required
 
 " Old vim configs
@@ -69,6 +73,8 @@ source ~/dotfiles/globals.vim
 
 
 lua << EOF
+
+require("stickybuf").setup()
 
 require('nvim-autopairs').setup({
     map_cr = false
@@ -78,12 +84,14 @@ require("mtelescope") -- My Telescope plugin
 require("mlsp") -- My LSP config
 require("none_ls") -- Additional LSP integrations.
 require("mtreesitter") 
+require("maerial") 
 
 vim.diagnostic.config({  -- https://neovim.io/doc/user/diagnostic.html
     virtual_text = true,
     signs = false,
     underline = true,
 })
+
 
 
 vim.keymap.set('n', '<C-j>', vim.diagnostic.goto_next, {silent = True, noremap = True})
@@ -140,6 +148,16 @@ notify.setup({
         stages = "no_animation", -- <==== This is the workaround
       })
 vim.notify = notify
+
+for _, method in ipairs({ 'textDocument/diagnostic', 'workspace/diagnostic' }) do
+    local default_diagnostic_handler = vim.lsp.handlers[method]
+    vim.lsp.handlers[method] = function(err, result, context, config)
+        if err ~= nil and err.code == -32802 then
+            return
+        end
+        return default_diagnostic_handler(err, result, context, config)
+    end
+end
 
 
 EOF

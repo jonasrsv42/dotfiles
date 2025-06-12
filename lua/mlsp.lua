@@ -1,5 +1,9 @@
 
 -- Set up nvim-cmp.
+local cmenu = require('colorful-menu')
+cmenu.setup({})
+
+
 local cmp = require'cmp'
 local lspkind = require('lspkind')
 
@@ -27,20 +31,41 @@ snippet = {
       { name = 'buffer' },
   }),
   formatting = {
-    format = lspkind.cmp_format({
-      mode = 'symbol', -- show only symbol annotations
-      maxwidth = 50, -- prevent the popup from showing more than provided characters (e.g 50 will not show more than 50 characters)
-                     -- can also be a function to dynamically calculate max width such as
-                     -- maxwidth = function() return math.floor(0.45 * vim.o.columns) end,
-      ellipsis_char = '...', -- when popup menu exceed maxwidth, the truncated part would show ellipsis_char instead (must define maxwidth first)
-      show_labelDetails = true, -- show labelDetails in menu. Disabled by default
+    fields = { "kind", "abbr", "menu" },
+    format = function(entry, vim_item)
+      local completion_item = entry:get_completion_item()
+      local highlights_info = cmenu.highlights(completion_item, vim.bo.filetype)
 
-      -- The function below will be called before any actual modifications from lspkind
-      -- so that you can provide more controls on popup customization. (See [#30](https://github.com/onsails/lspkind-nvim/pull/30))
-      before = function (entry, vim_item)
-        return vim_item
+      vim_item.abbr = completion_item.label
+      -- error, such as missing parser, fallback to use raw label.
+      if highlights_info == nil then
+          vim_item.abbr = completion_item.label
+      else
+          -- Some issue on nvim 0.10
+          -- vim_item.abbr_hl_group = highlights_info.highlights
+          vim_item.abbr = highlights_info.text
       end
-    })
+
+      local kind = require("lspkind").cmp_format({
+        mode = 'symbol', -- show only symbol annotations
+        maxwidth = 50, -- prevent the popup from showing more than provided characters (e.g 50 will not show more than 50 characters)
+                       -- can also be a function to dynamically calculate max width such as
+                       -- maxwidth = function() return math.floor(0.45 * vim.o.columns) end,
+        ellipsis_char = '...', -- when popup menu exceed maxwidth, the truncated part would show ellipsis_char instead (must define maxwidth first)
+        show_labelDetails = true, -- show labelDetails in menu. Disabled by default
+
+        -- The function below will be called before any actual modifications from lspkind
+        -- so that you can provide more controls on popup customization. (See [#30](https://github.com/onsails/lspkind-nvim/pull/30))
+        before = function (entry, vim_item)
+          return vim_item
+        end
+      })(entry, vim_item)
+      local strings = vim.split(kind.kind, "%s", { trimempty = true })
+      vim_item.kind = " " .. (strings[1] or "") .. " "
+      vim_item.menu = ""
+
+      return vim_item
+    end,
   }
 })
 
@@ -90,8 +115,22 @@ require'lspconfig'.rust_analyzer.setup{
   server = {
     capabilities = capabilities,
     on_attach = on_attach,
+  },
+  settings = {
+    ['rust-analyzer'] = {
+      cargo = {
+        allFeatures = true
+      },
+    },
   }
 }
+
+require'lspconfig'.vtsls.setup({
+  server = {
+    capabilities = capabilities,
+    on_attach = on_attach
+  }
+})
 
 require'lspconfig'.pylsp.setup{
 server = {
@@ -105,7 +144,7 @@ server = {
       autopep8 = { enabled = false },
       yapf = { enabled = false },
       -- linter options
-      pylint = { enabled = false, executable = "pylint" },
+      pylint = { enabled = true, executable = "pylint" },
       pyflakes = { enabled = false },
       pycodestyle = { enabled = false },
       -- type checker
@@ -116,7 +155,7 @@ server = {
       pyls_isort = { enabled = true },
       plugins = {
         pycodestyle = {
-          ignore = {'W391'},
+          ignore = {'W391', "W503", "E203"},
           maxLineLength = 100
         }
         }
@@ -124,12 +163,15 @@ server = {
     }
   }
 
-require'lspconfig'.clangd.setup {
-  server = {
-    capabilities = capabilities,
-    on_attach = on_attach
-  }
-}
+--require'lspconfig'.clangd.setup {
+--  server = {
+--    capabilities = capabilities,
+--    on_attach = on_attach
+--  }
+--}
+
+require'lspconfig'.protols.setup{}
+
 
 vim.keymap.set('n', '<leader>F', vim.lsp.buf.format, {silent = True, noremap = True})
 vim.keymap.set('n', 'gd', vim.lsp.buf.definition, {silent = True, noremap = True})
