@@ -98,6 +98,7 @@ then
   echo "${fg_red}nvim not found Please install it${fg_reset}"
   echo "Try:"
   echo "       https://github.com/neovim/neovim/releases"
+  echo " Also sudo apt install python3-pynvim "
   exit 1
 fi
 
@@ -107,14 +108,6 @@ if [ ! -f $NEOVIMRC_PATH ]; then
   ln -s $HOME/dotfiles/init.vim $NEOVIMRC_PATH 
 else
   echo "${fg_magenta} $NEOVIMRC_PATH already exists - skipping... ${reset}"
-fi
-
-VIMRC_PATH=$HOME/.vimrc
-if [ ! -f $VIMRC_PATH ]; then
-  echo "${fg_green} Linking $HOME/dotfiles/.vimrc -> $VIMRC_PATH ${reset}"
-  ln -s $HOME/dotfiles/.vimrc $VIMRC_PATH 
-else
-  echo "${fg_magenta} $VIMRC_PATH already exists - skipping... ${reset}"
 fi
 
 VIM_PATH=$HOME/.vim
@@ -170,63 +163,63 @@ then
 fi
 
 
-echo "${fg_green}$ Setting up for xmobar ${reset}"
+#echo "${fg_green}$ Setting up for xmobar ${reset}"
+#
+#if ! command -v xmobar 
+#then 
+#  echo "${fg_red}xmobar not found Please install it${fg_reset}"
+#  echo "I am using 0.37 - Install from source here:"
+#  echo "       https://github.com/jaor/xmobar"
+#  echo "${fg_magenta} Remember to install with all extensions ${fg_reset}"
+#  exit 1
+#fi
+#
+#XMOBAR_PATH=$HOME/.xmobarrc
+#if [ ! -f $XMOBAR_PATH ]; then
+#  echo "${fg_green} Linking $HOME/dotfiles/.xmobarrc -> $XMOBAR_PATH ${reset}"
+#  ln -s $HOME/dotfiles/.xmobarrc $XMOBAR_PATH
+#else
+#  echo "${fg_magenta} $XMOBAR_PATH already exists - skipping... ${reset}"
+#fi 
 
-if ! command -v xmobar 
-then 
-  echo "${fg_red}xmobar not found Please install it${fg_reset}"
-  echo "I am using 0.37 - Install from source here:"
-  echo "       https://github.com/jaor/xmobar"
-  echo "${fg_magenta} Remember to install with all extensions ${fg_reset}"
-  exit 1
-fi
-
-XMOBAR_PATH=$HOME/.xmobarrc
-if [ ! -f $XMOBAR_PATH ]; then
-  echo "${fg_green} Linking $HOME/dotfiles/.xmobarrc -> $XMOBAR_PATH ${reset}"
-  ln -s $HOME/dotfiles/.xmobarrc $XMOBAR_PATH
-else
-  echo "${fg_magenta} $XMOBAR_PATH already exists - skipping... ${reset}"
-fi 
-
-echo "${fg_green}$ Setting up for xmonad ${reset}"
-
-if ! command -v xmonad 
-then 
-  echo "${fg_red}Xmonad not found Please install it${fg_reset}"
-  echo "I am using 0.15 - See installation instructions  here:"
-  echo "       https://github.com/xmonad/xmonad"
-  echo "${fg_magenta} Make sure the version is >= 0.15 and make sure to install contrib ${fg_reset}"
-  exit 1
-fi
-
-XMONAD_PATH=$HOME/.xmonad/xmonad.hs
-if [ ! -f $XMONAD_PATH ]; then
-  echo "${fg_green} Linking $HOME/dotfiles/xmonad.hs -> $XMONAD_PATH ${reset}"
-  ln -s $HOME/dotfiles/xmonad.hs $XMONAD_PATH
-
-  echo "${fg_green}$ You will have to recompile xmonad once this script is done.. ${reset}"
-else
-  echo "${fg_magenta} $XMONAD_PATH already exists - skipping... ${reset}"
-fi 
-
-CALC_PATH=/usr/bin/calc
-if [ ! -f $CALC_PATH ]; then
-  echo "${fg_green} Linking $HOME/dotfiles/bin/calc -> $CALC_PATH ${reset}"
-  sudo ln -s $HOME/dotfiles/bin/calc $CALC_PATH
-else
-  echo "${fg_magenta} $CALC_PATH already exists - skipping... ${reset}"
-fi 
-
-
-
-XMONAD_XSESSION_PATH=/usr/share/xsessions/xmonad.desktop
-if [ ! -f $XMONAD_XSESSION_PATH ]; then
-  echo "${fg_green} Linking $HOME/dotfiles/xmonad.desktop -> $XMONAD_XSESSION_PATH ${reset}"
-  sudo ln -s $PWD/xmonad.desktop /usr/share/xsessions/xmonad.desktop
-else
-  echo "${fg_magenta} $XMONAD_XSESSION_PATH already exists - skipping... ${reset}"
-fi 
+#echo "${fg_green}$ Setting up for xmonad ${reset}"
+#
+#if ! command -v xmonad 
+#then 
+#  echo "${fg_red}Xmonad not found Please install it${fg_reset}"
+#  echo "I am using 0.15 - See installation instructions  here:"
+#  echo "       https://github.com/xmonad/xmonad"
+#  echo "${fg_magenta} Make sure the version is >= 0.15 and make sure to install contrib ${fg_reset}"
+#  exit 1
+#fi
+#
+#XMONAD_PATH=$HOME/.xmonad/xmonad.hs
+#if [ ! -f $XMONAD_PATH ]; then
+#  echo "${fg_green} Linking $HOME/dotfiles/xmonad.hs -> $XMONAD_PATH ${reset}"
+#  ln -s $HOME/dotfiles/xmonad.hs $XMONAD_PATH
+#
+#  echo "${fg_green}$ You will have to recompile xmonad once this script is done.. ${reset}"
+#else
+#  echo "${fg_magenta} $XMONAD_PATH already exists - skipping... ${reset}"
+#fi 
+#
+#CALC_PATH=/usr/bin/calc
+#if [ ! -f $CALC_PATH ]; then
+#  echo "${fg_green} Linking $HOME/dotfiles/bin/calc -> $CALC_PATH ${reset}"
+#  sudo ln -s $HOME/dotfiles/bin/calc $CALC_PATH
+#else
+#  echo "${fg_magenta} $CALC_PATH already exists - skipping... ${reset}"
+#fi 
+#
+#
+#
+#XMONAD_XSESSION_PATH=/usr/share/xsessions/xmonad.desktop
+#if [ ! -f $XMONAD_XSESSION_PATH ]; then
+#  echo "${fg_green} Linking $HOME/dotfiles/xmonad.desktop -> $XMONAD_XSESSION_PATH ${reset}"
+#  sudo ln -s $PWD/xmonad.desktop /usr/share/xsessions/xmonad.desktop
+#else
+#  echo "${fg_magenta} $XMONAD_XSESSION_PATH already exists - skipping... ${reset}"
+#fi 
 
 # TODO this might break it actually? just use the desktop thingy
 #echo "${fg_green}$ Creating .xsessionrc that will start xmonad ${reset}"

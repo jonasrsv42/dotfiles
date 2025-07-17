@@ -1,7 +1,7 @@
 source $HOME/dotfiles/.env
-source $HOME/.secretenv
 export PATH=${PATH}:/usr/local/go/bin:$HOME/go/bin
 export PATH=${PATH}:$HOME/dotfiles/bin
+export PATH=${PATH}:$HOME/.local
 
 
 echo "$(envsubst < ~/dotfiles/.landing)"
