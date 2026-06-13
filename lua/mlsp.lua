@@ -190,10 +190,10 @@ require'lspconfig'.protols.setup{}
 --}
 
 
-vim.keymap.set('n', '<leader>F', vim.lsp.buf.format, {silent = True, noremap = True})
-vim.keymap.set('n', 'gd', vim.lsp.buf.definition, {silent = True, noremap = True})
-vim.keymap.set('n', 'K', vim.lsp.buf.hover, {silent = True, noremap = True})
-vim.keymap.set('n', 'gr', vim.lsp.buf.references, {silent = True, noremap = True})
-vim.keymap.set('n', '<C-space>', vim.lsp.buf.code_action, {silent = True, noremap = True})
-vim.keymap.set('n', '<C-s>', vim.lsp.buf.signature_help, {silent = True, noremap = True})
+vim.keymap.set('n', '<leader>F', vim.lsp.buf.format, {silent = true, noremap = true})
+vim.keymap.set('n', 'gd', vim.lsp.buf.definition, {silent = true, noremap = true})
+vim.keymap.set('n', 'K', vim.lsp.buf.hover, {silent = true, noremap = true})
+vim.keymap.set('n', 'gr', vim.lsp.buf.references, {silent = true, noremap = true})
+vim.keymap.set('n', '<C-space>', vim.lsp.buf.code_action, {silent = true, noremap = true})
+vim.keymap.set('n', '<C-s>', vim.lsp.buf.signature_help, {silent = true, noremap = true})
 

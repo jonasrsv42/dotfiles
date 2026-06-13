@@ -47,15 +47,15 @@ defaults = {
 local builtin = require('telescope.builtin')
 
 
-vim.keymap.set('n', '<leader>f', '<cmd>Telescope find_files<cr>', {silent = True, noremap = True})
-vim.keymap.set('n', '<leader>g', '<cmd>Telescope live_grep<cr>', {silent = True, noremap = True})
+vim.keymap.set('n', '<leader>f', '<cmd>Telescope find_files<cr>', {silent = true, noremap = true})
+vim.keymap.set('n', '<leader>g', '<cmd>Telescope live_grep<cr>', {silent = true, noremap = true})
 
 vim.keymap.set('n', '<leader>G', function() 
   builtin.live_grep({ default_text = vim.fn.expand('<cword>') })
 end, { desc = '[g]rep [l]ive [w]ord' })
 
-vim.keymap.set('n', '<leader>t', '<cmd>Telescope<cr>', {silent = True, noremap = True})
-vim.keymap.set('n', '<leader>p', '<cmd>Telescope oldfiles<cr>', {silent = True, noremap = True})
+vim.keymap.set('n', '<leader>t', '<cmd>Telescope<cr>', {silent = true, noremap = true})
+vim.keymap.set('n', '<leader>p', '<cmd>Telescope oldfiles<cr>', {silent = true, noremap = true})
 
 
 

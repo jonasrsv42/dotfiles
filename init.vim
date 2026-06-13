@@ -113,11 +113,11 @@ vim.diagnostic.config({  -- https://neovim.io/doc/user/diagnostic.html
 
 
 
-vim.keymap.set('n', '<C-j>', vim.diagnostic.goto_next, {silent = True, noremap = True})
-vim.keymap.set('n', '<C-k>', vim.diagnostic.goto_prev, {silent = True, noremap = True})
-vim.keymap.set('n', '<C-e>', '<cmd>CHADopen<cr>', {silent = True, noremap = True})
-vim.keymap.set('n', '<leader>j', '<cmd>cnext<cr>', {silent = True, noremap = True})
-vim.keymap.set('n', '<leader>k', '<cmd>cprevious<cr>', {silent = True, noremap = True})
+vim.keymap.set('n', '<C-j>', vim.diagnostic.goto_next, {silent = true, noremap = true})
+vim.keymap.set('n', '<C-k>', vim.diagnostic.goto_prev, {silent = true, noremap = true})
+vim.keymap.set('n', '<C-e>', '<cmd>CHADopen<cr>', {silent = true, noremap = true})
+vim.keymap.set('n', '<leader>j', '<cmd>cnext<cr>', {silent = true, noremap = true})
+vim.keymap.set('n', '<leader>k', '<cmd>cprevious<cr>', {silent = true, noremap = true})
 
 require("noice").setup({
   messages = {
