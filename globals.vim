@@ -87,8 +87,6 @@ map Z zz
 nnoremap L Lzz
 nnoremap H Hzz
 
-nnoremap tb :TagbarToggle<CR>
-
 au FileType netrw setl bufhidden=delete
 
 au FileType python set tabstop=4

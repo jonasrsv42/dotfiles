@@ -1,193 +1,111 @@
+-- Completion is handled by blink.cmp, which replaces nvim-cmp and all of the
+-- cmp-* source plugins (buffer/path/cmdline/nvim_lsp/signature_help) plus vsnip.
+-- LSP, path, snippet and buffer sources, signature help and command-line
+-- completion are all built in.
+local colorful = require("colorful-menu")
 
-
-local cmp = require'cmp'
-local lspkind = require('lspkind')
-
-cmp.setup({
-experimental = {
-    ghost_text = true,
-},
-snippet = {
-  -- REQUIRED - you must specify a snippet engine
-  expand = function(args)
-  end,
+require("blink.cmp").setup({
+  keymap = {
+    preset = "default",                 -- <C-n>/<C-p> or <Up>/<Down> to select, <C-y> to accept
+    ["<CR>"] = { "accept", "fallback" }, -- Enter accepts the selected item (no auto-preselect, see below)
+    ["<C-e>"] = { "hide", "fallback" },
   },
-  window = {
-    completion = cmp.config.window.bordered(),
-    documentation = cmp.config.window.bordered(),
+
+  appearance = {
+    nerd_font_variant = "mono",         -- built-in kind icons (replaces lspkind)
   },
-  mapping = cmp.mapping.preset.insert({
-    ['<C-e>'] = cmp.mapping.abort(),
-    ['<CR>'] = cmp.mapping.confirm({ select = false }), -- Accept currently selected item. Set `select` to `false` to only confirm explicitly selected items.
-  }),
- sources = cmp.config.sources({
-     { name = 'nvim_lsp' },
-     { name = 'nvim_lsp_signature_help' },
-   }, {
-     { name = 'buffer' },
- }),
-  formatting = {
-    fields = { "kind", "abbr", "menu" },
-    format = function(entry, vim_item)
-      local completion_item = entry:get_completion_item()
-      local highlights_info = require("colorful-menu").cmp_highlights(entry)  
 
-      if highlights_info ~= nil then
-          vim_item.abbr_hl_group = highlights_info.highlights
-          vim_item.abbr = highlights_info.text
-      end
+  -- Built-in signature help (replaces cmp-nvim-lsp-signature-help)
+  signature = { enabled = true },
 
-      --vim_item.abbr = completion_item.label
-      ---- error, such as missing parser, fallback to use raw label.
-      --if highlights_info == nil then
-      --    vim_item.abbr = completion_item.label
-      --else
-      --    -- Some issue on nvim 0.10
-      --    -- vim_item.abbr_hl_group = highlights_info.highlights
-      --    vim_item.abbr = highlights_info.text
-      --end
-
-      local kind = require("lspkind").cmp_format({
-        mode = 'symbol', -- show only symbol annotations
-        maxwidth = 50, -- prevent the popup from showing more than provided characters (e.g 50 will not show more than 50 characters)
-                       -- can also be a function to dynamically calculate max width such as
-                       -- maxwidth = function() return math.floor(0.45 * vim.o.columns) end,
-        ellipsis_char = '...', -- when popup menu exceed maxwidth, the truncated part would show ellipsis_char instead (must define maxwidth first)
-        show_labelDetails = true, -- show labelDetails in menu. Disabled by default
-
-        -- The function below will be called before any actual modifications from lspkind
-        -- so that you can provide more controls on popup customization. (See [#30](https://github.com/onsails/lspkind-nvim/pull/30))
-        before = function (entry, vim_item)
-          return vim_item
-        end
-      })(entry, vim_item)
-      local strings = vim.split(kind.kind, "%s", { trimempty = true })
-      vim_item.kind = " " .. (strings[1] or "") .. " "
-      vim_item.menu = ""
-
-      return vim_item
-    end,
-  }
-})
-
-
--- Set configuration for specific filetype.
-cmp.setup.filetype('gitcommit', {
-  sources = cmp.config.sources({
-  { name = 'git' }, -- You can specify the `git` source if [you were installed it](https://github.com/petertriho/cmp-git).
-  }, {
-    { name = 'buffer' },
-  })
-})
-
--- Use buffer source for `/` and `?` (if you enabled `native_menu`, this won't work anymore).
-cmp.setup.cmdline({ '/', '?' }, {
-  mapping = cmp.mapping.preset.cmdline(),
   sources = {
-    { name = 'buffer' }
-  }
-})
-
--- Use cmdline & path source for ':' (if you enabled `native_menu`, this won't work anymore).
-cmp.setup.cmdline(':', {
-  mapping = cmp.mapping.preset.cmdline(),
-  sources = cmp.config.sources({
-  { name = 'path' }
-  }, {
-    { name = 'cmdline' }
-  })
-})
-
-
--- Set up lspconfig.
-local capabilities = require('cmp_nvim_lsp').default_capabilities()
-
-local on_attach = function(client, buf)
-
--- 
-
-end
-
-
-
-
--- Setup rust_analyzer via rust-tools.nvim
-require'lspconfig'.rust_analyzer.setup{
-  server = {
-    capabilities = capabilities,
-    on_attach = on_attach,
+    default = { "lsp", "path", "snippets", "buffer" },
   },
-  settings = {
-    ['rust-analyzer'] = {
-      cargo = {
-        allFeatures = false
+
+  fuzzy = { implementation = "prefer_rust_with_warning" },
+
+  completion = {
+    -- Don't preselect/auto-insert; Enter only confirms an explicitly selected
+    -- item. Matches the old nvim-cmp `confirm({ select = false })` behaviour.
+    list = { selection = { preselect = false, auto_insert = true } },
+
+    ghost_text = { enabled = true },
+
+    documentation = {
+      auto_show = true,
+      window = { border = "single" },
+    },
+
+    menu = {
+      border = "single",
+      draw = {
+        -- colorful-menu.nvim provides the syntax-highlighted label
+        treesitter = { "lsp" },
+        columns = { { "kind_icon" }, { "label", gap = 1 } },
+        components = {
+          label = {
+            text = function(ctx) return colorful.blink_components_text(ctx) end,
+            highlight = function(ctx) return colorful.blink_components_highlight(ctx) end,
+          },
+        },
       },
     },
-  }
-}
+  },
 
-require'lspconfig'.vtsls.setup({
-  server = {
-    capabilities = capabilities,
-    on_attach = on_attach
-  }
+  cmdline = {
+    keymap = { preset = "cmdline" },
+    completion = { menu = { auto_show = true } },
+  },
 })
 
-require'lspconfig'.pylsp.setup{
-server = {
-  capabilities = capabilities,
-  on_attach = on_attach,
-  },
+
+-- ---------------------------------------------------------------------------
+-- LSP: native vim.lsp.config / vim.lsp.enable (Neovim 0.11+).
+-- nvim-lspconfig is on the runtimepath purely to supply the base server
+-- definitions (cmd, filetypes, root markers) under vim.lsp.config.
+-- ---------------------------------------------------------------------------
+
+-- Apply blink.cmp's completion capabilities to every server.
+vim.lsp.config("*", {
+  capabilities = require("blink.cmp").get_lsp_capabilities(),
+})
+
+vim.lsp.config("rust_analyzer", {
   settings = {
-    pylsp = {
-     -- formatter options
-      black = { enabled = true },
-      autopep8 = { enabled = false },
-      yapf = { enabled = false },
-      -- linter options
-      pylint = { enabled = true, executable = "pylint" },
-      pyflakes = { enabled = false },
-      pycodestyle = { enabled = false },
-      -- type checker
-      pylsp_mypy = { enabled = true },
-      -- auto-completion options
-      jedi_completion = { fuzzy = true },
-      -- import sorting
-      pyls_isort = { enabled = true },
-      plugins = {
-        pycodestyle = {
-          ignore = {'W391', "W503", "E203"},
-          maxLineLength = 100
-        }
-        }
-      }
-    }
-  }
+    ["rust-analyzer"] = {
+      cargo = { allFeatures = false },
+    },
+  },
+})
 
---require'lspconfig'.clangd.setup {
---  server = {
---    capabilities = capabilities,
---    on_attach = on_attach
---  }
---}
+-- basedpyright: types / completion / hover.  ruff: lint, format, import sort.
+-- Install both into the venvs where you used to have pylsp:
+--   pip install ruff basedpyright
+vim.lsp.config("basedpyright", {
+  settings = {
+    basedpyright = {
+      analysis = {
+        typeCheckingMode = "standard",
+        diagnosticMode = "openFilesOnly",
+      },
+    },
+  },
+})
 
-require'lspconfig'.protols.setup{}
+vim.lsp.config("ruff", {
+  -- Let basedpyright own hover; ruff just lints/formats.
+  on_attach = function(client, _)
+    client.server_capabilities.hoverProvider = false
+  end,
+})
 
---require'lspconfig'.kotlin_language_server.setup{
-  --capabilities = capabilities,
-  --on_attach = on_attach,
-  ---- Override the default command to use JetBrains' intellij-server
-  --cmd = { "intellij-server" },
-  --settings = {
-    --kotlin = {
-      --compiler = {
-        --jvm = {
-          --target = "17" -- Adjust this to matching your project's target JVM
-        --}
-      --}
-    --}
-  --}
---}
+vim.lsp.enable({
+  "rust_analyzer",
+  "vtsls",
+  "basedpyright",
+  "ruff",
+  "protols",
+})
 
 
 vim.keymap.set('n', '<leader>F', vim.lsp.buf.format, {silent = true, noremap = true})
@@ -196,4 +114,3 @@ vim.keymap.set('n', 'K', vim.lsp.buf.hover, {silent = true, noremap = true})
 vim.keymap.set('n', 'gr', vim.lsp.buf.references, {silent = true, noremap = true})
 vim.keymap.set('n', '<C-space>', vim.lsp.buf.code_action, {silent = true, noremap = true})
 vim.keymap.set('n', '<C-s>', vim.lsp.buf.signature_help, {silent = true, noremap = true})
-

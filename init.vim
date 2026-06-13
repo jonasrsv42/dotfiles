@@ -1,79 +1,70 @@
 set runtimepath^=~/.vim runtimepath+=~/.vim/after
 let &packpath = &runtimepath
 
-set rtp+=~/.vim/bundle/Vundle.vim
-
-
-call vundle#begin()
-" alternatively, pass a path where Vundle should install plugins
-
-" let Vundle manage Vundle, required
-Plugin 'VundleVim/Vundle.vim'
-
-" Utilities
-Plugin 'kkoomen/vim-doge' " Auto doc comment
-Plugin 'scrooloose/nerdcommenter' "Auto comment
-
-
-Plugin 'windwp/nvim-autopairs'
-Plugin 'nvim-telescope/telescope.nvim'
-Plugin 'nvim-lua/plenary.nvim'
-
-" Neovim LSP
-Plugin 'onsails/lspkind.nvim'
-Plugin 'hrsh7th/nvim-cmp'
-Plugin 'hrsh7th/cmp-buffer'
-Plugin 'hrsh7th/cmp-path'
-Plugin 'hrsh7th/cmp-cmdline'
-Plugin 'hrsh7th/cmp-nvim-lsp'
-Plugin 'hrsh7th/cmp-nvim-lsp-signature-help'
-Plugin 'neovim/nvim-lspconfig'
-Plugin 'nvimtools/none-ls.nvim'
-Plugin 'xzbdmw/colorful-menu.nvim'
-
-Plugin 'https://gitlab.com/HiPhish/rainbow-delimiters.nvim'
-
-" Code forces
-Plugin 'gabrielsimoes/cfparser.vim'
-
-" Niceities
-Plugin 'ryanoasis/vim-devicons'
-"
-"" Navigation
-Plugin 'ms-jpq/chadtree'
-"
-" Language Specific
-Plugin 'rust-lang/rust.vim'
-Plugin 'evanleck/vim-svelte'
-Plugin 'uarun/vim-protobuf'
-Plugin 'cakebaker/scss-syntax.vim'
-Plugin 'chr4/nginx.vim'
-
-Plugin 'scottmckendry/cyberdream.nvim'
-
-" Markdown viewer
-Plugin 'OXY2DEV/markview.nvim'
-
-" Git
-Plugin 'tpope/vim-fugitive'
-Plugin 'nvim-treesitter/nvim-treesitter'
-
-"UI 
-Plugin 'MunifTanjim/nui.nvim'
-Plugin 'rcarriga/nvim-notify'
-Plugin 'folke/noice.nvim'
-
-Plugin 'stevearc/aerial.nvim'
-Plugin 'stevearc/stickybuf.nvim'
-
-
-call vundle#end()            " required
-
 " Old vim configs
 source ~/dotfiles/globals.vim
 
 
 lua << EOF
+
+-- Plugins are managed by Neovim's native plugin manager `vim.pack` (Neovim 0.12+).
+-- This replaces Vundle. Plugins live under ~/.local/share/nvim/site/pack/core/opt/
+-- and are pinned via ~/.config/nvim/nvim-pack-lock.json.
+--   :lua vim.pack.update()            update all plugins (shows a confirm buffer)
+--   :lua vim.pack.update({ "name" })  update one plugin
+--   :lua print(vim.inspect(vim.pack.get()))  list managed plugins
+vim.pack.add({
+  -- Utilities
+  { src = 'https://github.com/kkoomen/vim-doge' },        -- Auto doc comment (run :call doge#install() once)
+  { src = 'https://github.com/preservim/nerdcommenter' }, -- Auto comment
+  { src = 'https://github.com/windwp/nvim-autopairs' },
+  { src = 'https://github.com/nvim-telescope/telescope.nvim' },
+  { src = 'https://github.com/nvim-lua/plenary.nvim' },
+
+  -- Completion: blink.cmp replaces nvim-cmp + all cmp-* sources + vsnip.
+  -- Pinned to the stable v1 line so the prebuilt fuzzy binary is fetched.
+  { src = 'https://github.com/saghen/blink.cmp', version = vim.version.range('1') },
+  { src = 'https://github.com/xzbdmw/colorful-menu.nvim' },
+
+  -- LSP (config registry; servers enabled via native vim.lsp.enable in lua/mlsp.lua)
+  { src = 'https://github.com/neovim/nvim-lspconfig' },
+
+  { src = 'https://gitlab.com/HiPhish/rainbow-delimiters.nvim' },
+
+  -- Code forces
+  { src = 'https://github.com/gabrielsimoes/cfparser.vim' },
+
+  -- Icons (nvim-web-devicons replaces the old vimscript vim-devicons)
+  { src = 'https://github.com/nvim-tree/nvim-web-devicons' },
+
+  -- Navigation
+  { src = 'https://github.com/ms-jpq/chadtree' },         -- run :CHADdeps once to build the python venv
+
+  -- Language Specific
+  { src = 'https://github.com/rust-lang/rust.vim' },
+  { src = 'https://github.com/evanleck/vim-svelte' },
+  { src = 'https://github.com/uarun/vim-protobuf' },
+  { src = 'https://github.com/cakebaker/scss-syntax.vim' },
+  { src = 'https://github.com/chr4/nginx.vim' },
+
+  -- Markdown viewer
+  { src = 'https://github.com/OXY2DEV/markview.nvim' },
+
+  -- Git
+  { src = 'https://github.com/tpope/vim-fugitive' },
+
+  -- Treesitter: pinned to `master` to keep the classic `configs.setup` API
+  -- (the default branch is migrating to the new `main` rewrite).
+  { src = 'https://github.com/nvim-treesitter/nvim-treesitter', version = 'master' },
+
+  -- UI
+  { src = 'https://github.com/MunifTanjim/nui.nvim' },
+  { src = 'https://github.com/rcarriga/nvim-notify' },
+  { src = 'https://github.com/folke/noice.nvim' },
+
+  { src = 'https://github.com/stevearc/aerial.nvim' },
+  { src = 'https://github.com/stevearc/stickybuf.nvim' },
+}, { confirm = false })
 
 
 vim.g.chadtree_settings = {
@@ -100,10 +91,9 @@ require('nvim-autopairs').setup({
 })
 
 require("mtelescope") -- My Telescope plugin
-require("mlsp") -- My LSP config
-require("none_ls") -- Additional LSP integrations.
-require("mtreesitter") 
-require("maerial") 
+require("mlsp") -- My LSP config (completion + native LSP servers)
+require("mtreesitter")
+require("maerial")
 
 vim.diagnostic.config({  -- https://neovim.io/doc/user/diagnostic.html
     virtual_text = true,
@@ -113,8 +103,8 @@ vim.diagnostic.config({  -- https://neovim.io/doc/user/diagnostic.html
 
 
 
-vim.keymap.set('n', '<C-j>', vim.diagnostic.goto_next, {silent = true, noremap = true})
-vim.keymap.set('n', '<C-k>', vim.diagnostic.goto_prev, {silent = true, noremap = true})
+vim.keymap.set('n', '<C-j>', function() vim.diagnostic.jump({ count = 1, float = true }) end, {silent = true, noremap = true})
+vim.keymap.set('n', '<C-k>', function() vim.diagnostic.jump({ count = -1, float = true }) end, {silent = true, noremap = true})
 vim.keymap.set('n', '<C-e>', '<cmd>CHADopen<cr>', {silent = true, noremap = true})
 vim.keymap.set('n', '<leader>j', '<cmd>cnext<cr>', {silent = true, noremap = true})
 vim.keymap.set('n', '<leader>k', '<cmd>cprevious<cr>', {silent = true, noremap = true})
@@ -132,11 +122,10 @@ require("noice").setup({
   },
 
   lsp = {
-    -- override markdown rendering so that **cmp** and other plugins use **Treesitter**
+    -- override markdown rendering so that completion docs use **Treesitter**
     override = {
       ["vim.lsp.util.convert_input_to_markdown_lines"] = true,
       ["vim.lsp.util.stylize_markdown"] = true,
-      ["cmp.entry.get_documentation"] = true, -- requires hrsh7th/nvim-cmp
     },
     message = {
       -- Messages shown by lsp servers
@@ -145,12 +134,9 @@ require("noice").setup({
     },
   },
   popupmenu = {
-    enabled = true, -- enables the Noice popupmenu UI
-    ---@type 'nui'|'cmp'
-    backend = "cmp", -- backend to use to show regular cmdline completions
-    ---@type NoicePopupmenuItemKind|false
-    -- Icons for completion item kinds (see defaults at noice.config.icons.kinds)
-    kind_icons = {}, -- set to `false` to disable icons
+    -- blink.cmp owns command-line completion now, so noice's own popupmenu is
+    -- disabled to avoid two competing completion menus.
+    enabled = false,
   },
 
   -- you can enable a preset for easier configuration
@@ -182,4 +168,3 @@ end
 
 
 EOF
-

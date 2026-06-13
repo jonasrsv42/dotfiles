@@ -131,13 +131,10 @@ if [ ! -d $VIM_LUA_PATH ]; then
  ln -s $HOME/dotfiles/lua $HOME/.config/nvim/lua
 fi
 
-VIM_VUNDLE_PATH=$HOME/.vim/bundle/Vundle.vim
-if [ ! -f $VIM_VUNDLE_PATH/README.md ]; then
-  echo "${fg_green} Installing Vundle (vim plugin manager) at $VIM_VUNDLE_PATH ${reset}"
-  git clone https://github.com/VundleVim/Vundle.vim.git $VIM_VUNDLE_PATH
-else
-  echo "${fg_magenta} $VIM_VUNDLE_PATH already exists - skipping... ${reset}"
-fi 
+# Plugins are managed by Neovim's native vim.pack (Neovim 0.12+). They install
+# automatically on first launch of nvim into ~/.local/share/nvim/site/pack.
+echo "${fg_green} Plugins are managed by native vim.pack - launch nvim to install them ${reset}"
+echo "${fg_magenta} Requires Neovim >= 0.12 ${reset}"
 
 
 echo "${fg_green}$ Setting up for tmux ${reset}"

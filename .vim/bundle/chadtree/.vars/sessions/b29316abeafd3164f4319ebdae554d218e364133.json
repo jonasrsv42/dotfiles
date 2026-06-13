@@ -1,0 +1,22 @@
+{
+  "index": {
+    "/home/jonasrsv/dotfiles/hostim": true,
+    "/home/jonasrsv/dotfiles/.vim/after": true,
+    "/": true,
+    "/home": true,
+    "/home/jonasrsv/dotfiles/lua": true,
+    "/home/jonasrsv/.config/nvim": true,
+    "/home/jonasrsv/dotfiles/dist-newstyle/cache": true,
+    "/home/jonasrsv/.config/nvim/lua": true,
+    "/usr": true,
+    "/usr/share/xsessions": true,
+    "/usr/share": true,
+    "/home/jonasrsv": true,
+    "/home/jonasrsv/.config": true,
+    "/home/jonasrsv/.xmonad": true,
+    "/tmp": true,
+    "/home/jonasrsv/dotfiles": true
+  },
+  "show_hidden": false,
+  "enable_vc": true
+}
