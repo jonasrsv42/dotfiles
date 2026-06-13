@@ -53,9 +53,11 @@ vim.pack.add({
   -- Git
   { src = 'https://github.com/tpope/vim-fugitive' },
 
-  -- Treesitter: pinned to `master` to keep the classic `configs.setup` API
-  -- (the default branch is migrating to the new `main` rewrite).
-  { src = 'https://github.com/nvim-treesitter/nvim-treesitter', version = 'master' },
+  -- Treesitter: `main` branch (the 0.12 rewrite). The old `master` branch is
+  -- frozen and incompatible with Neovim 0.12. `main` provides parsers + queries;
+  -- highlighting is driven by Neovim's native vim.treesitter (see lua/mtreesitter.lua).
+  -- Needs the tree-sitter CLI (~/.local/bin/tree-sitter) + a C compiler to build parsers.
+  { src = 'https://github.com/nvim-treesitter/nvim-treesitter', version = 'main' },
 
   -- UI
   { src = 'https://github.com/MunifTanjim/nui.nvim' },

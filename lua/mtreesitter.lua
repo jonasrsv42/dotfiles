@@ -1,35 +1,33 @@
+-- nvim-treesitter `main` branch (the Neovim 0.12 rewrite).
+--
+-- On `main`, this plugin only installs parsers and ships queries -- the actual
+-- highlighting is done by Neovim's *native* treesitter (`vim.treesitter.start`).
+-- The old `master` branch is frozen and incompatible with Neovim 0.12.
+--
+-- Requires the `tree-sitter` CLI and a C compiler on PATH to build parsers.
 
-require'nvim-treesitter.configs'.setup {
-  -- A list of parser names, or "all" (the listed parsers MUST always be installed)
-  ensure_installed = { "rust", "lua", "vim", "python" , "kotlin" },
+local ts = require("nvim-treesitter")
 
-  -- Install parsers synchronously (only applied to `ensure_installed`)
-  sync_install = false,
+-- Parsers to keep installed. lua / vim / markdown / markdown_inline ship with
+-- Neovim itself, so we only fetch the languages I actually use. install() is
+-- idempotent: it no-ops for parsers that are already built, and self-heals a
+-- fresh machine by compiling any that are missing (asynchronously).
+local ensure = { "rust", "python", "kotlin", "swift" }
+pcall(function() ts.install(ensure) end)
 
-  -- Automatically install missing parsers when entering buffer
-  -- Recommendation: set to false if you don't have `tree-sitter` CLI installed locally
-  auto_install = true,
-
-  -- List of parsers to ignore installing (or "all")
-  ignore_install = { "javascript" },
-
-  ---- If you need to change the installation directory of the parsers (see -> Advanced Setup)
-  -- parser_install_dir = "/some/path/to/store/parsers", -- Remember to run vim.opt.runtimepath:append("/some/path/to/store/parsers")!
-
-  highlight = {
-    enable = true,
-
-    -- NOTE: these are the names of the parsers and not the filetype. (for example if you want to
-    -- disable highlighting for the `tex` filetype, you need to include `latex` in this list as this is
-    -- the name of the parser)
-    -- list of language that will be disabled
-    disable = { },
-
-    -- Setting this to true will run `:h syntax` and tree-sitter at the same time.
-    -- Set this to `true` if you depend on 'syntax' being enabled (like for indentation).
-    -- Using this option may slow down your editor, and you may see some duplicate highlights.
-    -- Instead of true it can also be a list of languages
-    additional_vim_regex_highlighting = false,
-  },
-}
-
+-- Turn on native treesitter highlighting for any buffer whose parser is
+-- available. The guard isn't error-swallowing: a missing parser for some
+-- random filetype is an expected, normal case -- we just skip highlighting it
+-- rather than enabling something that can't work.
+vim.api.nvim_create_autocmd("FileType", {
+  callback = function(args)
+    local lang = vim.treesitter.language.get_lang(vim.bo[args.buf].filetype)
+    if not lang then
+      return
+    end
+    local ok, available = pcall(vim.treesitter.language.add, lang)
+    if ok and available then
+      vim.treesitter.start(args.buf)
+    end
+  end,
+})

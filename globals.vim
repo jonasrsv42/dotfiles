@@ -1,4 +1,6 @@
-let g:python3_host_prog = '/usr/bin/python3'
+" python3 provider host (needs pynvim). Points at the always-active default venv
+" where pynvim is installed -- fixes the provider error and feeds chadtree.
+let g:python3_host_prog = expand('~/.default_python/bin/python')
 set completeopt=menuone,noselect
 
 

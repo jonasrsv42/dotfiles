@@ -94,10 +94,39 @@ chsh -s $(which zsh)
 echo "${fg_green} Setting up for neovim ${reset}"
 
 if ! command -v nvim && ! command -v nvim.appimage
-then 
+then
   echo "${fg_red}nvim not found Please install it${fg_reset}"
   echo "Try:"
   echo "       https://github.com/neovim/neovim/releases"
+  exit 1
+fi
+
+# vim.pack (the plugin manager) and nvim-treesitter `main` require Neovim >= 0.12.
+NVIM_BIN="$(command -v nvim || command -v nvim.appimage)"
+NVIM_VER="$("$NVIM_BIN" --version | head -1 | grep -oE '[0-9]+\.[0-9]+' | head -1)"
+if [ "${NVIM_VER%%.*}" -eq 0 ] && [ "${NVIM_VER##*.}" -lt 12 ]; then
+  echo "${fg_red}Neovim $NVIM_VER found, but >= 0.12 is required (vim.pack + treesitter main)${reset}"
+  echo "Get a newer build at:"
+  echo "       https://github.com/neovim/neovim/releases"
+  exit 1
+fi
+
+# nvim-treesitter `main` compiles parsers locally; it needs the tree-sitter CLI
+# (>= 0.26.1) and a C compiler on PATH.
+if ! command -v tree-sitter
+then
+  echo "${fg_red}tree-sitter CLI not found - needed to build treesitter parsers${fg_reset}"
+  echo "Try (prebuilt binary into ~/.local/bin):"
+  echo "       curl -sL https://github.com/tree-sitter/tree-sitter/releases/latest/download/tree-sitter-linux-x64.gz | gunzip > ~/.local/bin/tree-sitter && chmod +x ~/.local/bin/tree-sitter"
+  echo "${fg_magenta} (or: cargo install tree-sitter-cli) - must be >= 0.26.1, do NOT use the npm version ${reset}"
+  exit 1
+fi
+
+if ! command -v cc && ! command -v gcc && ! command -v clang
+then
+  echo "${fg_red}No C compiler (cc/gcc/clang) found - needed to compile treesitter parsers${fg_reset}"
+  echo "Try:"
+  echo "       sudo apt-get install build-essential"
   exit 1
 fi
 

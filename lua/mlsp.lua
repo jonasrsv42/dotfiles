@@ -39,8 +39,9 @@ require("blink.cmp").setup({
     menu = {
       border = "single",
       draw = {
-        -- colorful-menu.nvim provides the syntax-highlighted label
-        treesitter = { "lsp" },
+        -- colorful-menu.nvim owns label highlighting; do NOT also enable blink's
+        -- built-in `treesitter = { "lsp" }` here -- running both makes blink
+        -- re-parse the label and crash with "treesitter.lua: method 'range' (nil)".
         columns = { { "kind_icon" }, { "label", gap = 1 } },
         components = {
           label = {
@@ -53,7 +54,12 @@ require("blink.cmp").setup({
   },
 
   cmdline = {
-    keymap = { preset = "cmdline" },
+    keymap = {
+      preset = "cmdline",
+      -- <Tab> accepts the current suggestion instead of cycling to the next.
+      -- (The cmdline preset keeps <C-n>/<C-p> and arrows for cycling.)
+      ["<Tab>"] = { "select_and_accept", "fallback" },
+    },
     completion = { menu = { auto_show = true } },
   },
 })
@@ -79,8 +85,19 @@ vim.lsp.config("rust_analyzer", {
 })
 
 -- basedpyright: types / completion / hover.  ruff: lint, format, import sort.
--- Install both into the venvs where you used to have pylsp:
---   pip install ruff basedpyright
+-- Both are installed ONCE as global tools (basedpyright in ~/.default_python,
+-- ruff in ~/.local/bin) -- NOT per project venv. They are venv-aware: they
+-- analyze whichever environment belongs to the project being edited.
+--
+-- Picking the project's interpreter:
+--   * If an explicit project virtualenv is active ($VIRTUAL_ENV and it isn't the
+--     always-on ~/.default_python), use it.
+--   * Otherwise leave pythonPath unset and let basedpyright auto-detect a
+--     .venv / venv in the project root (or a pyrightconfig.json / pyproject.toml).
+local default_venv = vim.fn.expand("~/.default_python")
+local active_venv = vim.env.VIRTUAL_ENV
+local use_venv = active_venv and active_venv ~= "" and active_venv ~= default_venv
+
 vim.lsp.config("basedpyright", {
   settings = {
     basedpyright = {
@@ -89,6 +106,7 @@ vim.lsp.config("basedpyright", {
         diagnosticMode = "openFilesOnly",
       },
     },
+    python = use_venv and { pythonPath = active_venv .. "/bin/python" } or nil,
   },
 })
 

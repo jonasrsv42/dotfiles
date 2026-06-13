@@ -1,5 +1,5 @@
 source $HOME/dotfiles/.env
-source $HOME/.secretenv
+source /home/jonasrsv/.secrets
 export PATH=${PATH}:/usr/local/go/bin:$HOME/go/bin
 export PATH=${PATH}:$HOME/dotfiles/bin
 
@@ -12,6 +12,7 @@ for file in ~/dotfiles/zsh-scripts/*; do source $file; done
 fpath+=$HOME/dotfiles
 autoload -U promptinit; promptinit
 prompt pure
+
 
 
 # pavucontrol (For pulse audio!!) bluetoothctl to connect to headset!! (pacmd for other stuff!!)
@@ -67,10 +68,7 @@ function sudosearch {
 }
 
 
-alias ssh-gpu="ssh 192.168.1.10 -i ~/.ssh/gpubot_rsa"
-alias ssh-gcloud-friday='gcloud beta compute ssh --zone "europe-north1-a" "friday-recordings" --project "seventh-atom-291111"'
-alias ssh-gcloud-discover-friday='gcloud beta compute ssh --zone "europe-north1-a" "discoverfriday" --project "seventh-atom-291111"'
-alias ssh-gpu-gui="ssh -Y 192.168.1.10 -i ~/.ssh/gpubot_rsa" 
+
 alias sr=search
 alias susr=sudosearch
 alias ipy="ipython --profile J"
@@ -78,7 +76,7 @@ alias python="python3"
 alias ls='ls --color=tty'
 alias grep='grep --color=auto '
 alias go-home="sudo openvpn --config ~/pivpns/jonas.ovpn"
-alias vim="nvim.appimage"
+alias vim="nvim"
 alias gitYolo="git add * && git commit -m 'yolomit' && git push -u origin --force"
 alias gitCba=lazy-push
 #alias find=fd
@@ -86,7 +84,7 @@ alias memory=ncdu
 alias xd=xdg-open
 
 function git-add-all-commit {
-  git add . 
+  git add .
   git commit -m $1
 }
 
@@ -94,6 +92,8 @@ alias ga="git-add-all-commit"
 alias gp="git push"
 alias gs="git status"
 alias gu="git pull"
+
+alias bazel=bazelisk
 
 function preview {
  gv -widgetless -spartan -watch -antialias $1 &
@@ -112,7 +112,7 @@ ezsh() {
 }
 
 evim() {
-  vim ~/.config/nvim/init.vim
+  vim ~/dotfiles/init.vim
 }
 
 eenv() {
@@ -122,13 +122,13 @@ eenv() {
 
 
 fs() {
-	local -r fmt='#{session_id}:|#S|(#{session_attached} attached)'
-	{ tmux display-message -p -F "$fmt" && tmux list-sessions -F "$fmt"; } \
-		| awk '!seen[$1]++' \
-		| column -t -s'|' \
-		| fzf -q '$' --reverse --prompt 'switch session: ' -1 \
-		| cut -d':' -f1 \
-		| xargs tmux switch-client -t
+local -r fmt='#{session_id}:|#S|(#{session_attached} attached)'
+{ tmux display-message -p -F "$fmt" && tmux list-sessions -F "$fmt"; } \
+| awk '!seen[$1]++' \
+| column -t -s'|' \
+| fzf -q '$' --reverse --prompt 'switch session: ' -1 \
+| cut -d':' -f1 \
+| xargs tmux switch-client -t
 }
 
 unalias z
@@ -151,12 +151,6 @@ if command -v tmux &> /dev/null && [ -z "$TMUX" ]; then
     #tmux attach -t default || tmux new -s default
 fi
 
-
-# The next line updates PATH for the Google Cloud SDK.
-if [ -f '/home/jonas/google-cloud-sdk/path.zsh.inc' ]; then . '/home/jonas/google-cloud-sdk/path.zsh.inc'; fi
-
-# The next line enables shell command completion for gcloud.
-if [ -f '/home/jonas/google-cloud-sdk/completion.zsh.inc' ]; then . '/home/jonas/google-cloud-sdk/completion.zsh.inc'; fi
 
 
 
@@ -191,12 +185,25 @@ workplace_vim() {
 alias v="workplace_vim"
 
 dual () {
-  xrandr --output eDP-1  --left-of HDMI-2 --output HDMI-2 --primary --auto
+  xrandr --output eDP-1-0  --left-of HDMI-0 --output HDMI-0 --primary --auto
 }
 
 single () {
-  xrandr --output HDMI-2 --off
+  xrandr --output HDMI-0 --off
 }
 
+export PYENV_ROOT="$HOME/.pyenv"
+[[ -d $PYENV_ROOT/bin ]] && export PATH="$PYENV_ROOT/bin:$PATH"
+eval "$(pyenv init -)"
 
-. /home/jonasrsv/.default_python/bin/activate
+alias defpy="source $HOME/dev/.pypackages/bin/activate"
+
+alias cb="ssh jonasrsv@192.168.178.88"
+
+export CB_HOST="jonasrsv@192.168.178.88"
+
+# The next line updates PATH for the Google Cloud SDK.
+if [ -f '/home/jonasrsv/Downloads/google-cloud-sdk/path.zsh.inc' ]; then . '/home/jonasrsv/Downloads/google-cloud-sdk/path.zsh.inc'; fi
+
+# The next line enables shell command completion for gcloud.
+if [ -f '/home/jonasrsv/Downloads/google-cloud-sdk/completion.zsh.inc' ]; then . '/home/jonasrsv/Downloads/google-cloud-sdk/completion.zsh.inc'; fi
