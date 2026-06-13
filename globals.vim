@@ -1,4 +1,3 @@
-let g:chadtree_settings = { "theme.text_colour_set": "solarized_universal" }
 let g:python3_host_prog = '/usr/bin/python3'
 set completeopt=menuone,noselect
 

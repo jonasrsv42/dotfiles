@@ -1,8 +1,4 @@
 
--- Set up nvim-cmp.
-local cmenu = require('colorful-menu')
-cmenu.setup({})
-
 
 local cmp = require'cmp'
 local lspkind = require('lspkind')
@@ -24,27 +20,32 @@ snippet = {
     ['<C-e>'] = cmp.mapping.abort(),
     ['<CR>'] = cmp.mapping.confirm({ select = false }), -- Accept currently selected item. Set `select` to `false` to only confirm explicitly selected items.
   }),
-  sources = cmp.config.sources({
-      { name = 'nvim_lsp' },
-      { name = 'nvim_lsp_signature_help' },
-    }, {
-      { name = 'buffer' },
-  }),
+ sources = cmp.config.sources({
+     { name = 'nvim_lsp' },
+     { name = 'nvim_lsp_signature_help' },
+   }, {
+     { name = 'buffer' },
+ }),
   formatting = {
     fields = { "kind", "abbr", "menu" },
     format = function(entry, vim_item)
       local completion_item = entry:get_completion_item()
-      local highlights_info = cmenu.highlights(completion_item, vim.bo.filetype)
+      local highlights_info = require("colorful-menu").cmp_highlights(entry)  
 
-      vim_item.abbr = completion_item.label
-      -- error, such as missing parser, fallback to use raw label.
-      if highlights_info == nil then
-          vim_item.abbr = completion_item.label
-      else
-          -- Some issue on nvim 0.10
-          -- vim_item.abbr_hl_group = highlights_info.highlights
+      if highlights_info ~= nil then
+          vim_item.abbr_hl_group = highlights_info.highlights
           vim_item.abbr = highlights_info.text
       end
+
+      --vim_item.abbr = completion_item.label
+      ---- error, such as missing parser, fallback to use raw label.
+      --if highlights_info == nil then
+      --    vim_item.abbr = completion_item.label
+      --else
+      --    -- Some issue on nvim 0.10
+      --    -- vim_item.abbr_hl_group = highlights_info.highlights
+      --    vim_item.abbr = highlights_info.text
+      --end
 
       local kind = require("lspkind").cmp_format({
         mode = 'symbol', -- show only symbol annotations
@@ -119,7 +120,7 @@ require'lspconfig'.rust_analyzer.setup{
   settings = {
     ['rust-analyzer'] = {
       cargo = {
-        allFeatures = true
+        allFeatures = false
       },
     },
   }
@@ -171,6 +172,22 @@ server = {
 --}
 
 require'lspconfig'.protols.setup{}
+
+--require'lspconfig'.kotlin_language_server.setup{
+  --capabilities = capabilities,
+  --on_attach = on_attach,
+  ---- Override the default command to use JetBrains' intellij-server
+  --cmd = { "intellij-server" },
+  --settings = {
+    --kotlin = {
+      --compiler = {
+        --jvm = {
+          --target = "17" -- Adjust this to matching your project's target JVM
+        --}
+      --}
+    --}
+  --}
+--}
 
 
 vim.keymap.set('n', '<leader>F', vim.lsp.buf.format, {silent = True, noremap = True})

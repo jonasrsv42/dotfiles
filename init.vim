@@ -38,10 +38,10 @@ Plugin 'gabrielsimoes/cfparser.vim'
 
 " Niceities
 Plugin 'ryanoasis/vim-devicons'
-
-" Navigation
+"
+"" Navigation
 Plugin 'ms-jpq/chadtree'
-
+"
 " Language Specific
 Plugin 'rust-lang/rust.vim'
 Plugin 'evanleck/vim-svelte'
@@ -50,6 +50,9 @@ Plugin 'cakebaker/scss-syntax.vim'
 Plugin 'chr4/nginx.vim'
 
 Plugin 'scottmckendry/cyberdream.nvim'
+
+" Markdown viewer
+Plugin 'OXY2DEV/markview.nvim'
 
 " Git
 Plugin 'tpope/vim-fugitive'
@@ -63,8 +66,6 @@ Plugin 'folke/noice.nvim'
 Plugin 'stevearc/aerial.nvim'
 Plugin 'stevearc/stickybuf.nvim'
 
-" Markdown viewer
-Plugin 'OXY2DEV/markview.nvim'
 
 call vundle#end()            " required
 
@@ -73,6 +74,24 @@ source ~/dotfiles/globals.vim
 
 
 lua << EOF
+
+
+vim.g.chadtree_settings = {
+  -- other root-level settings if any
+  theme = {
+    text_colour_set = "solarized_universal"
+  },
+  options = {
+    -- other options if any
+    version_control = {
+      enable = false
+    }
+  },
+  ignore = {
+    name_exact = {".git"}  -- Also ignore .git folders
+  }
+}
+
 
 require("stickybuf").setup()
 
@@ -97,6 +116,8 @@ vim.diagnostic.config({  -- https://neovim.io/doc/user/diagnostic.html
 vim.keymap.set('n', '<C-j>', vim.diagnostic.goto_next, {silent = True, noremap = True})
 vim.keymap.set('n', '<C-k>', vim.diagnostic.goto_prev, {silent = True, noremap = True})
 vim.keymap.set('n', '<C-e>', '<cmd>CHADopen<cr>', {silent = True, noremap = True})
+vim.keymap.set('n', '<leader>j', '<cmd>cnext<cr>', {silent = True, noremap = True})
+vim.keymap.set('n', '<leader>k', '<cmd>cprevious<cr>', {silent = True, noremap = True})
 
 require("noice").setup({
   messages = {
