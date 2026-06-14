@@ -1,4 +1,6 @@
 
+local actions = require('telescope.actions')
+
 require('telescope').setup{
 defaults = {
   vimgrep_arguments = {
@@ -40,7 +42,15 @@ defaults = {
         qflist_previewer = require'telescope.previewers'.vim_buffer_qflist.new,
 
         -- Developer configurations: Not meant for general override
-        buffer_previewer_maker = require'telescope.previewers'.buffer_previewer_maker
+        buffer_previewer_maker = require'telescope.previewers'.buffer_previewer_maker,
+
+        -- <C-q> respects Tab multi-selection: send the marked entries to the
+        -- quickfix list if any are selected, otherwise send all results.
+        -- (The default <C-q> = send_to_qflist always sends everything.)
+        mappings = {
+          i = { ["<C-q>"] = actions.smart_send_to_qflist + actions.open_qflist },
+          n = { ["<C-q>"] = actions.smart_send_to_qflist + actions.open_qflist },
+        },
 }
 }
 

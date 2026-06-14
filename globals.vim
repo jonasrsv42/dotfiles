@@ -1,6 +1,6 @@
-" python3 provider host (needs pynvim). Points at the always-active default venv
-" where pynvim is installed -- fixes the provider error and feeds chadtree.
-let g:python3_host_prog = expand('~/.default_python/bin/python')
+" python3 provider host (needs pynvim). Points at a dedicated, reproducible venv
+" (created by setup.sh via uv) -- fixes the provider error and feeds chadtree.
+let g:python3_host_prog = expand('~/.local/share/nvim-host-venv/bin/python')
 set completeopt=menuone,noselect
 
 

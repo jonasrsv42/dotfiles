@@ -85,18 +85,16 @@ vim.lsp.config("rust_analyzer", {
 })
 
 -- basedpyright: types / completion / hover.  ruff: lint, format, import sort.
--- Both are installed ONCE as global tools (basedpyright in ~/.default_python,
--- ruff in ~/.local/bin) -- NOT per project venv. They are venv-aware: they
--- analyze whichever environment belongs to the project being edited.
+-- Both are installed ONCE as standalone tools via `uv tool install` (shims on
+-- ~/.local/bin) -- NOT per project venv. They are venv-aware: they analyze
+-- whichever environment belongs to the project being edited.
 --
 -- Picking the project's interpreter:
---   * If an explicit project virtualenv is active ($VIRTUAL_ENV and it isn't the
---     always-on ~/.default_python), use it.
+--   * If a virtualenv is active ($VIRTUAL_ENV), use its interpreter.
 --   * Otherwise leave pythonPath unset and let basedpyright auto-detect a
 --     .venv / venv in the project root (or a pyrightconfig.json / pyproject.toml).
-local default_venv = vim.fn.expand("~/.default_python")
 local active_venv = vim.env.VIRTUAL_ENV
-local use_venv = active_venv and active_venv ~= "" and active_venv ~= default_venv
+local use_venv = active_venv ~= nil and active_venv ~= ""
 
 vim.lsp.config("basedpyright", {
   settings = {

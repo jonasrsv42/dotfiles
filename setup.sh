@@ -130,7 +130,44 @@ then
   exit 1
 fi
 
-NEOVIMRC_PATH=$HOME/.config/nvim/init.vim 
+# Python LSP tooling: basedpyright + ruff are installed as standalone, venv-agnostic
+# tools via `uv` (they analyze each project's own venv). uv also builds the python3
+# provider host venv below.
+if ! command -v uv
+then
+  echo "${fg_red}uv not found - used to install the python LSP tools${fg_reset}"
+  echo "Try:"
+  echo "       curl -LsSf https://astral.sh/uv/install.sh | sh"
+  exit 1
+fi
+
+if ! command -v basedpyright-langserver
+then
+  echo "${fg_red}basedpyright-langserver not found - python LSP (types/completion)${fg_reset}"
+  echo "Try:"
+  echo "       uv tool install basedpyright"
+  exit 1
+fi
+
+if ! command -v ruff
+then
+  echo "${fg_red}ruff not found - python lint/format LSP${fg_reset}"
+  echo "Try:"
+  echo "       uv tool install ruff"
+  exit 1
+fi
+
+# python3 provider host venv (pynvim) - used by chadtree and python remote plugins.
+# Referenced by g:python3_host_prog in globals.vim.
+NVIM_HOST_VENV=$HOME/.local/share/nvim-host-venv
+if [ ! -x "$NVIM_HOST_VENV/bin/python" ]; then
+  echo "${fg_green} Creating nvim python3 host venv (pynvim) at $NVIM_HOST_VENV ${reset}"
+  uv venv "$NVIM_HOST_VENV" && uv pip install --python "$NVIM_HOST_VENV/bin/python" pynvim
+else
+  echo "${fg_magenta} $NVIM_HOST_VENV already exists - skipping... ${reset}"
+fi
+
+NEOVIMRC_PATH=$HOME/.config/nvim/init.vim
 if [ ! -f $NEOVIMRC_PATH ]; then
   echo "${fg_green} Linking $HOME/dotfiles/init.vim -> $NEOVIMRC_PATH ${reset}"
   ln -s $HOME/dotfiles/init.vim $NEOVIMRC_PATH 
