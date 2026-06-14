@@ -5,8 +5,6 @@ require("diffview").setup({
   keymaps = {
     -- In the diff windows:
     view = {
-      { "n", "<leader>de", "<Cmd>wincmd b<CR>", { desc = "Jump to the editable (working-tree) pane" } },
-      { "n", "<leader>db", actions.focus_files, { desc = "Back to browsing files (file panel)" } },
     },
     -- In the file-list panel: just press `e` on a file to open + edit it.
     -- (select_entry opens the diff; wincmd b lands on the editable working-tree pane.)
