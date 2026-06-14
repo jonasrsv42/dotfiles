@@ -76,7 +76,6 @@ nnoremap N Nzz
 nnoremap j gj
 nnoremap k gk
 
-nnoremap <C-w> <C-w>w
 nnoremap <C-e> :CHADopen<CR>
 
 map <space> <leader>

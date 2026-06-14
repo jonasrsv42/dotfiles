@@ -167,6 +167,20 @@ else
   echo "${fg_magenta} $NVIM_HOST_VENV already exists - skipping... ${reset}"
 fi
 
+# Kotlin LSP (JetBrains' official, IntelliJ-based, bundles its own JBR). Extracted
+# standalone under ~/.local/kotlin-lsp; the cmd path is set in lua/mlsp.lua.
+# Optional - only needed for Kotlin development, so this does not exit on failure.
+KOTLIN_LSP_BIN=$HOME/.local/kotlin-lsp/extension/server/bin/intellij-server
+if [ ! -x "$KOTLIN_LSP_BIN" ]; then
+  echo "${fg_red}Kotlin LSP not found (optional - only needed for Kotlin dev)${fg_reset}"
+  echo "Install: grab the linux-amd64 'Standalone' .vsix from the latest release and unzip it:"
+  echo "       https://github.com/Kotlin/kotlin-lsp/releases/latest"
+  echo "       mkdir -p ~/.local/kotlin-lsp && unzip kotlin-server-*-linux-amd64.vsix -d ~/.local/kotlin-lsp"
+  echo "       chmod +x ~/.local/kotlin-lsp/extension/server/bin/intellij-server ~/.local/kotlin-lsp/extension/server/jbr/bin/*"
+else
+  echo "${fg_magenta} Kotlin LSP present - skipping... ${reset}"
+fi
+
 NEOVIMRC_PATH=$HOME/.config/nvim/init.vim
 if [ ! -f $NEOVIMRC_PATH ]; then
   echo "${fg_green} Linking $HOME/dotfiles/init.vim -> $NEOVIMRC_PATH ${reset}"

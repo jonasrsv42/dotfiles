@@ -115,12 +115,20 @@ vim.lsp.config("ruff", {
   end,
 })
 
+-- JetBrains' official Kotlin LSP (IntelliJ-engine based, bundles its own JBR).
+-- Installed standalone under ~/.local/kotlin-lsp (see setup.sh); point cmd at
+-- the absolute path so it doesn't depend on a PATH symlink.
+vim.lsp.config("kotlin_lsp", {
+  cmd = { vim.fn.expand("~/.local/kotlin-lsp/extension/server/bin/intellij-server"), "--stdio" },
+})
+
 vim.lsp.enable({
   "rust_analyzer",
   "vtsls",
   "basedpyright",
   "ruff",
   "protols",
+  "kotlin_lsp",
 })
 
 

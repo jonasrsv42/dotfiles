@@ -52,6 +52,7 @@ vim.pack.add({
 
   -- Git
   { src = 'https://github.com/tpope/vim-fugitive' },
+  { src = 'https://github.com/sindrets/diffview.nvim' }, -- review a whole changeset (cycle files/hunks)
 
   -- Treesitter: `main` branch (the 0.12 rewrite). The old `master` branch is
   -- frozen and incompatible with Neovim 0.12. `main` provides parsers + queries;
@@ -96,6 +97,7 @@ require("mtelescope") -- My Telescope plugin
 require("mlsp") -- My LSP config (completion + native LSP servers)
 require("mtreesitter")
 require("maerial")
+require("mdiffview") -- diffview.nvim setup, muted diff colours, review keymaps
 
 vim.diagnostic.config({  -- https://neovim.io/doc/user/diagnostic.html
     virtual_text = true,
