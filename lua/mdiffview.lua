@@ -1,6 +1,26 @@
 -- diffview.nvim: review a whole changeset locally, cycling through files/hunks.
 local actions = require("diffview.actions")
 
+local function yank_to_clipboards(value, what)
+  vim.fn.setreg('"', value)
+  vim.fn.setreg("+", value)
+  vim.notify("Yanked " .. what, vim.log.levels.INFO, { title = "diffview" })
+end
+
+-- In the file-list panel: `Y` yanks the absolute path of the file under the
+-- cursor (NERDTree-style).
+local function yank_panel_abs_path()
+  local ok, lib = pcall(require, "diffview.lib")
+  if not ok then return end
+  local view = lib.get_current_view()
+  local item = view and view.panel and view.panel:get_item_at_cursor()
+  if item and item.absolute_path then
+    yank_to_clipboards(item.absolute_path, item.absolute_path)
+  else
+    vim.notify("No file under cursor", vim.log.levels.WARN, { title = "diffview" })
+  end
+end
+
 require("diffview").setup({
   keymaps = {
     -- In the diff windows:
@@ -8,6 +28,7 @@ require("diffview").setup({
     },
     -- In the file-list panel: just press `e` on a file to open + edit it.
     -- (select_entry opens the diff; wincmd b lands on the editable working-tree pane.)
+    -- `Y` yanks the absolute path of the file under the cursor.
     file_panel = {
       {
         "n",
@@ -18,6 +39,7 @@ require("diffview").setup({
         end,
         { desc = "Open + edit the selected file" },
       },
+      { "n", "Y", yank_panel_abs_path, { desc = "Yank absolute path of file" } },
     },
   },
 })
