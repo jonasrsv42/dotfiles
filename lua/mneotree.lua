@@ -23,6 +23,18 @@ require("neo-tree").setup({
       ["v"] = "open_vsplit",
       ["<C-e>"] = "close_window",   -- same key closes the tree from inside it
       -- Jump the tree cursor to the file open in the editor (chadtree's J).
+      -- Copy the absolute path of the node under the cursor to the system
+      -- clipboard (what chadtree's Y did). gy copies just the file name.
+      ["Y"] = function(state)
+        local path = state.tree:get_node():get_id()
+        vim.fn.setreg("+", path)
+        vim.notify("Copied: " .. path)
+      end,
+      ["gy"] = function(state)
+        local name = state.tree:get_node().name
+        vim.fn.setreg("+", name)
+        vim.notify("Copied: " .. name)
+      end,
       ["J"] = function()
         require("neo-tree.command").execute({ action = "focus", source = "filesystem", reveal = true })
       end,
