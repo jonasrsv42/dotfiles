@@ -1,5 +1,5 @@
 " python3 provider host (needs pynvim). Points at a dedicated, reproducible venv
-" (created by setup.sh via uv) -- fixes the provider error and feeds chadtree.
+" (created by setup.sh via uv) -- fixes the provider error for python remote plugins.
 let g:python3_host_prog = expand('~/.local/share/nvim-host-venv/bin/python')
 set completeopt=menuone,noselect
 
@@ -75,8 +75,6 @@ nnoremap N Nzz
 
 nnoremap j gj
 nnoremap k gk
-
-nnoremap <C-e> :CHADopen<CR>
 
 map <space> <leader>
 map <C-c> :bd<CR>

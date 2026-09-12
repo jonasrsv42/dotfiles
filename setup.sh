@@ -157,7 +157,7 @@ then
   exit 1
 fi
 
-# python3 provider host venv (pynvim) - used by chadtree and python remote plugins.
+# python3 provider host venv (pynvim) - used by python remote plugins.
 # Referenced by g:python3_host_prog in globals.vim.
 NVIM_HOST_VENV=$HOME/.local/share/nvim-host-venv
 if [ ! -x "$NVIM_HOST_VENV/bin/python" ]; then

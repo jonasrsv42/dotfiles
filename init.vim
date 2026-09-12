@@ -38,7 +38,7 @@ vim.pack.add({
   { src = 'https://github.com/nvim-tree/nvim-web-devicons' },
 
   -- Navigation
-  { src = 'https://github.com/ms-jpq/chadtree' },         -- run :CHADdeps once to build the python venv
+  { src = 'https://github.com/nvim-neo-tree/neo-tree.nvim', version = vim.version.range('3') }, -- needs plenary + nui (below)
 
   -- Language Specific
   { src = 'https://github.com/rust-lang/rust.vim' },
@@ -70,21 +70,6 @@ vim.pack.add({
 }, { confirm = false })
 
 
-vim.g.chadtree_settings = {
-  -- other root-level settings if any
-  theme = {
-    text_colour_set = "solarized_universal"
-  },
-  options = {
-    -- other options if any
-    version_control = {
-      enable = false
-    }
-  },
-  ignore = {
-    name_exact = {".git"}  -- Also ignore .git folders
-  }
-}
 
 
 require("stickybuf").setup()
@@ -97,6 +82,7 @@ require("mtelescope") -- My Telescope plugin
 require("mlsp") -- My LSP config (completion + native LSP servers)
 require("mtreesitter")
 require("maerial")
+require("mneotree") -- neo-tree file explorer (reveal on open, no follow)
 require("mdiffview") -- diffview.nvim setup, muted diff colours, review keymaps
 
 vim.diagnostic.config({  -- https://neovim.io/doc/user/diagnostic.html
@@ -109,7 +95,13 @@ vim.diagnostic.config({  -- https://neovim.io/doc/user/diagnostic.html
 
 vim.keymap.set('n', '<C-j>', function() vim.diagnostic.jump({ count = 1, float = true }) end, {silent = true, noremap = true})
 vim.keymap.set('n', '<C-k>', function() vim.diagnostic.jump({ count = -1, float = true }) end, {silent = true, noremap = true})
-vim.keymap.set('n', '<C-e>', '<cmd>CHADopen<cr>', {silent = true, noremap = true})
+
+-- File tree: <C-e> toggles neo-tree and reveals the current file on open.
+-- follow_current_file is off, so the tree stays where you scrolled it.
+vim.keymap.set('n', '<C-e>', '<cmd>Neotree toggle reveal<cr>', { silent = true, noremap = true })
+-- <leader>e re-reveals the current file in an already open tree.
+vim.keymap.set('n', '<leader>e', '<cmd>Neotree reveal<cr>', { silent = true, noremap = true })
+
 vim.keymap.set('n', '<leader>j', '<cmd>cnext<cr>', {silent = true, noremap = true})
 vim.keymap.set('n', '<leader>k', '<cmd>cprevious<cr>', {silent = true, noremap = true})
 
