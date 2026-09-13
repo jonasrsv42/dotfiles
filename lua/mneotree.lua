@@ -5,7 +5,7 @@
 -- init.vim) locates the current file on demand.
 
 require("neo-tree").setup({
-  close_if_last_window = true,
+  close_if_last_window = false,    -- :q on the last file window leaves neo-tree open (chadtree-like)
   enable_git_status = false,       -- mirrors chadtree version_control.enable = false
   enable_diagnostics = false,
   default_component_configs = {
