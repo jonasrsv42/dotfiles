@@ -2,14 +2,16 @@
 require("aerial").setup({
   -- Priority list of preferred backends for aerial.
   -- This can be a filetype map (see :help aerial-filetype-map)
-  backends = { "treesitter", "lsp", "markdown", "asciidoc", "man" },
+  -- LSP goes first: the treesitter queries for rust/python only know about
+  -- top-level items, while the LSP gives struct fields, methods and signatures.
+  backends = { "lsp", "treesitter", "markdown", "asciidoc", "man" },
 
   layout = {
     -- These control the width of the aerial window.
     -- They can be integers or a float between 0 and 1 (e.g. 0.4 for 40%)
     -- min_width and max_width can be a list of mixed types.
     -- max_width = {40, 0.2} means "the lesser of 40 columns or 20% of total"
-    max_width = { 40, 0.2 },
+    max_width = { 60, 0.3 },
     width = nil,
     min_width = 10,
 
@@ -102,10 +104,15 @@ require("aerial").setup({
     "Class",
     "Constructor",
     "Enum",
+    "EnumMember",
+    "Field",
     "Function",
     "Interface",
     "Module",
     "Method",
+    "Object", -- rust-analyzer reports `impl` blocks as Object
+    "Property",
+    "Variable", -- only kept inside a class/struct, see post_parse_symbol
     "Struct",
   },
 
@@ -219,6 +226,82 @@ require("aerial").setup({
   --   * syntax_tree?: specific to the treesitter backend
   --   * match?: specific to the treesitter backend, TS query match
   post_parse_symbol = function(bufnr, item, ctx)
+    if ctx.backend_name ~= "lsp" or not ctx.symbol then
+      return true
+    end
+    local parent_kind = item.parent and item.parent.kind or nil
+    local in_type = parent_kind == "Class" or parent_kind == "Struct" or parent_kind == "Object"
+
+    -- Variables are only interesting as fields of a class (python dataclass
+    -- attributes are reported as Variable by basedpyright).
+    if item.kind == "Variable" and not in_type then
+      return false
+    end
+
+    -- Collapse whitespace so multi-line signatures fit on one row.
+    local function squash(str)
+      return (str:gsub("%s+", " "):gsub("^ ", ""):gsub(" $", ""))
+    end
+
+    -- Find the treesitter node for this symbol and read its signature /
+    -- type annotation.  Used for servers that send no `detail` (basedpyright).
+    local function ts_detail()
+      local ok, parser = pcall(vim.treesitter.get_parser, bufnr)
+      if not ok or not parser then
+        return nil
+      end
+      local tree = parser:parse()[1]
+      if not tree then
+        return nil
+      end
+      local r = item.selection_range or item
+      local node = tree:root():named_descendant_for_range(r.lnum - 1, r.col, r.lnum - 1, r.col)
+      for _ = 1, 3 do
+        if not node then
+          return nil
+        end
+        local params = node:field("parameters")[1]
+        if params then
+          local sig = vim.treesitter.get_node_text(params, bufnr)
+          local ret = node:field("return_type")[1]
+          if ret then
+            sig = sig .. " -> " .. vim.treesitter.get_node_text(ret, bufnr)
+          end
+          return sig
+        end
+        local ty = node:field("type")[1]
+        if ty then
+          return vim.treesitter.get_node_text(ty, bufnr)
+        end
+        node = node:parent()
+      end
+    end
+
+    -- `impl Foo` blocks already carry the type in their name.
+    if item.kind == "Object" then
+      return true
+    end
+
+    local detail = ctx.symbol.detail
+    if type(detail) ~= "string" or detail == "" then
+      local ok, d = pcall(ts_detail)
+      detail = ok and d or nil
+    end
+    if type(detail) ~= "string" then
+      return true
+    end
+    detail = squash(detail)
+    -- rust-analyzer reports functions as "fn(x: f64) -> Self"; drop the
+    -- leading keyword(s) so the label reads "new(x: f64) -> Self".
+    detail = detail:gsub("^[%w%s]-fn%s*", "")
+    if detail ~= "" and detail ~= item.name then
+      local c = detail:sub(1, 1)
+      if c == "(" or c == "<" then
+        item.name = item.name .. detail -- signature
+      else
+        item.name = item.name .. ": " .. detail -- field / property type
+      end
+    end
     return true
   end,
 
@@ -244,7 +327,7 @@ require("aerial").setup({
   update_events = "TextChanged,InsertLeave",
 
   -- Show box drawing characters for the tree hierarchy
-  show_guides = false,
+  show_guides = true,
 
   -- Customize the characters used when show_guides = true
   guides = {
