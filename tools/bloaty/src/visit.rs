@@ -144,6 +144,18 @@ pub struct FnFact {
     pub body_hash: Option<BodyHash>,
     /// Complexity and fragility measures; `None` for test code.
     pub metrics: Option<FnMetrics>,
+    /// Where `metrics.panics` are, in source order (empty for test code).
+    pub panic_sites: Vec<PanicSite>,
+}
+
+/// One panic site counted in `FnMetrics::panics`.
+#[derive(Serialize, Clone, PartialEq, Eq, Debug)]
+pub struct PanicSite {
+    pub line: usize,
+    /// 1-based, in characters.
+    pub col: usize,
+    /// `unwrap`, `expect`, or the macro with its `!` (`panic!`, `assert_eq!`).
+    pub kind: String,
 }
 
 /// Per-fn measures over the body, closures included and nested items
@@ -471,6 +483,12 @@ impl Visitor<'_> {
             || s.attrs.iter().any(|a| !is_plain_attr(a));
         let mut cfgs = self.cfg_stack.clone();
         cfgs.extend(cfg_attrs(s.attrs));
+        let (metrics, panic_sites) = if in_test {
+            (None, Vec::new())
+        } else {
+            let (m, sites) = fn_metrics(s.sig, s.block);
+            (Some(m), sites)
+        };
         let forwards_to = match s.kind {
             // Trait impls often *must* delegate (Display, From, Deref...).
             FnKind::Free | FnKind::Inherent if !in_test && !exempt && cfgs.is_empty() => {
@@ -497,7 +515,8 @@ impl Visitor<'_> {
                 && end_line >= line + 4
                 && !is_struct_literal(s.block))
             .then(|| body_hashes(s.block)),
-            metrics: (!in_test).then(|| fn_metrics(s.sig, s.block)),
+            metrics,
+            panic_sites,
         }
     }
 
@@ -1472,7 +1491,7 @@ const PANIC_MACROS: &[&str] = &[
     "assert_ne",
 ];
 
-fn fn_metrics(sig: &syn::Signature, block: &Block) -> FnMetrics {
+fn fn_metrics(sig: &syn::Signature, block: &Block) -> (FnMetrics, Vec<PanicSite>) {
     let mut m = MetricsWalk {
         m: FnMetrics {
             complexity: 1,
@@ -1484,9 +1503,12 @@ fn fn_metrics(sig: &syn::Signature, block: &Block) -> FnMetrics {
             ..Default::default()
         },
         depth: 0,
+        sites: Vec::new(),
     };
     m.visit_block(block);
-    m.m
+    m.sites.sort_by_key(|s| (s.line, s.col));
+    m.m.panics = m.sites.len() as u32;
+    (m.m, m.sites)
 }
 
 /// A second, small walk over one fn body: the main visitor's bookkeeping
@@ -1495,9 +1517,20 @@ fn fn_metrics(sig: &syn::Signature, block: &Block) -> FnMetrics {
 struct MetricsWalk {
     m: FnMetrics,
     depth: u32,
+    /// The panic sites; their count becomes `m.panics`.
+    sites: Vec<PanicSite>,
 }
 
 impl MetricsWalk {
+    fn panic_at(&mut self, span: proc_macro2::Span, kind: String) {
+        let at = span.start();
+        self.sites.push(PanicSite {
+            line: at.line,
+            col: at.column + 1,
+            kind,
+        });
+    }
+
     fn nested(&mut self, f: impl FnOnce(&mut Self)) {
         self.depth += 1;
         self.m.nesting = self.m.nesting.max(self.depth);
@@ -1542,7 +1575,14 @@ impl MetricsWalk {
                                 && PANIC_MACROS.iter().any(|m| id == m)
                         }
                     };
-                    self.m.panics += u32::from(panic);
+                    if panic {
+                        let kind = if after_dot {
+                            id.to_string()
+                        } else {
+                            format!("{id}!")
+                        };
+                        self.panic_at(id.span(), kind);
+                    }
                     self.m.clones += u32::from(after_dot && args == Some(0) && id == "clone");
                 }
                 _ => {}
@@ -1641,7 +1681,7 @@ impl<'ast> Visit<'ast> for MetricsWalk {
     fn visit_expr_method_call(&mut self, e: &'ast syn::ExprMethodCall) {
         let (m, n) = (&e.method, e.args.len());
         if (m == "unwrap" && n == 0) || (m == "expect" && n == 1) {
-            self.m.panics += 1;
+            self.panic_at(m.span(), m.to_string());
         } else if m == "clone" && n == 0 {
             self.m.clones += 1;
         }
@@ -1649,8 +1689,14 @@ impl<'ast> Visit<'ast> for MetricsWalk {
     }
 
     fn visit_macro(&mut self, m: &'ast syn::Macro) {
-        if PANIC_MACROS.contains(&last_segment(&m.path).as_str()) {
-            self.m.panics += 1;
+        let name = last_segment(&m.path);
+        if PANIC_MACROS.contains(&name.as_str()) {
+            let span = m
+                .path
+                .segments
+                .last()
+                .map_or(m.path.span(), |s| s.ident.span());
+            self.panic_at(span, format!("{name}!"));
         }
         // Most macros take expressions (`format!`, `vec!`, `assert!`): walk
         // them like code so their branches and closures count.
@@ -2177,7 +2223,31 @@ mod tests {
             "#;
         let m = metrics(src, "f");
         assert_eq!(m.panics, 10);
+        assert_eq!(fact(&facts(src), "f").panic_sites.len(), 10);
         assert_eq!(m.clones, 4);
+    }
+
+    #[test]
+    fn panic_sites_say_where_and_what() {
+        let src = "fn f(x: Option<u8>, r: R) {\n    let a = x.unwrap();\n    println!(\"{}\", r.expect(\"e\"));\n    p.expect(t)?;\n    std::assert_eq!(a, 1);\n    tokio::select! { v = rx => v.unwrap(), }\n    if a > 1 { unreachable!() }\n    debug_assert!(a > 0);\n}\n#[cfg(test)]\nfn t() { None::<u8>.unwrap(); }";
+        let f = facts(src);
+        let sites: Vec<_> = fact(&f, "f")
+            .panic_sites
+            .iter()
+            .map(|s| (s.line, s.col, s.kind.as_str()))
+            .collect();
+        assert_eq!(
+            sites,
+            vec![
+                (2, 15, "unwrap"),
+                (3, 22, "expect"),
+                (5, 10, "assert_eq!"),
+                (6, 34, "unwrap"),
+                (7, 16, "unreachable!"),
+            ]
+        );
+        assert_eq!(fact(&f, "f").metrics.unwrap().panics, 5);
+        assert!(fact(&f, "t").panic_sites.is_empty());
     }
 
     #[test]

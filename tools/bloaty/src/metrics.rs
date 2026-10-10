@@ -3,7 +3,7 @@
 
 use crate::findings::{Loc, short_name};
 use crate::scan::{FileAnalysis, Scan};
-use crate::visit::{FnFact, FnMetrics};
+use crate::visit::{FnFact, FnMetrics, PanicSite};
 use serde::Serialize;
 use std::cmp::Reverse;
 use std::fmt::Write;
@@ -36,6 +36,14 @@ pub struct FnPeak {
     pub value: u32,
 }
 
+/// The fn with the most panic sites in a file, and where they are.
+#[derive(Serialize, Clone, Debug)]
+pub struct FnPanics {
+    #[serde(flatten)]
+    pub peak: FnPeak,
+    pub sites: Vec<PanicSite>,
+}
+
 /// A file's worst fns and its panic sites and clones. Fields about fns are
 /// absent when it has no measured fns.
 #[derive(Serialize, Clone, Debug, Default)]
@@ -46,6 +54,9 @@ pub struct FileMetrics {
     pub max_complexity: Option<FnPeak>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_nesting: Option<FnPeak>,
+    /// Absent when the file has no panic sites.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub most_panics: Option<FnPanics>,
     /// Panic sites in non-test fns.
     pub panics: u32,
     /// Panic sites per 100 impl lines; absent below `MIN_DENSITY_LINES`.
@@ -81,6 +92,21 @@ pub fn file_metrics(f: &FileAnalysis, impl_lines: usize) -> Option<FileMetrics> 
         }
         peak(&mut out.max_complexity, func, m.complexity);
         peak(&mut out.max_nesting, func, m.nesting);
+        if m.panics > 0
+            && out
+                .most_panics
+                .as_ref()
+                .is_none_or(|p| m.panics > p.peak.value)
+        {
+            out.most_panics = Some(FnPanics {
+                peak: FnPeak {
+                    name: func.name.clone(),
+                    line: func.line,
+                    value: m.panics,
+                },
+                sites: func.panic_sites.clone(),
+            });
+        }
         out.panics += m.panics;
         out.clones += m.clones;
     }
@@ -97,6 +123,8 @@ pub struct FnRow {
     pub lines: usize,
     #[serde(flatten)]
     pub metrics: FnMetrics,
+    /// As many as `metrics.panics`, in source order.
+    pub panic_sites: Vec<PanicSite>,
 }
 
 #[derive(Serialize)]
@@ -116,6 +144,7 @@ pub fn report(scan: &Scan) -> Report {
                 at: Loc::of_fn(scan, f, func),
                 lines: f.own_lines(func),
                 metrics,
+                panic_sites: func.panic_sites.clone(),
             })
         })
         .collect();
@@ -218,6 +247,11 @@ mod tests {
             [7, 2, 1, 1, 1, 0]
         );
         assert_eq!(n(&fns[1], "clones"), 1);
+        assert_eq!(
+            a["panic_sites"],
+            serde_json::json!([{"line": 3, "col": 11, "kind": "unwrap"}])
+        );
+        assert_eq!(fns[1]["panic_sites"], serde_json::json!([]));
 
         let s = summary(&scan, Some(GroupBy::File), 2, SortBy::Impl, 0);
         let v = serde_json::to_value(&s).unwrap();
@@ -233,6 +267,10 @@ mod tests {
         assert_eq!(lib["max_nesting"]["line"], 1);
         assert_eq!(lib["panics"], 1);
         assert_eq!(lib["clones"], 1);
+        assert_eq!(lib["most_panics"]["name"], "a");
+        assert_eq!(lib["most_panics"]["line"], 1);
+        assert_eq!(lib["most_panics"]["value"], 1);
+        assert_eq!(lib["most_panics"]["sites"][0]["line"], 3);
         // Too small for a density.
         assert!(lib.get("panic_density").is_none());
         assert!(lib["impl"].is_u64());
@@ -267,6 +305,32 @@ mod tests {
         assert!(lines[2].contains("lib.rs:7  Node<…>::get"), "{text}");
         assert_eq!(lines[3], "… 1 more (--top)");
         assert_eq!(render(&r, &scan, 0).lines().count(), 4);
+    }
+
+    #[test]
+    fn most_panics_is_the_fn_with_most_and_absent_without() {
+        let fx = Fixture::new(&[
+            ("Cargo.toml", "[package]\nname = \"m\"\n"),
+            (
+                "src/lib.rs",
+                "fn one(x: Option<u8>) { x.unwrap(); }\nfn two(x: Option<u8>) {\n    x.unwrap();\n    assert!(x.is_some());\n}\nfn also_two(x: Option<u8>) { x.unwrap(); x.expect(\"e\"); }\n",
+            ),
+            ("src/calm.rs", "fn calm() {}\n"),
+        ]);
+        let scan = fx.scan();
+        let m = |name: &str| {
+            let f = scan.files.iter().find(|f| f.rel.ends_with(name)).unwrap();
+            file_metrics(f, 6).unwrap()
+        };
+        let p = m("lib.rs").most_panics.unwrap();
+        // Ties go to the first fn.
+        assert_eq!(
+            (p.peak.name.as_str(), p.peak.line, p.peak.value),
+            ("two", 2, 2)
+        );
+        let kinds: Vec<_> = p.sites.iter().map(|s| (s.line, s.kind.as_str())).collect();
+        assert_eq!(kinds, vec![(3, "unwrap"), (4, "assert!")]);
+        assert!(m("calm.rs").most_panics.is_none());
     }
 
     #[test]

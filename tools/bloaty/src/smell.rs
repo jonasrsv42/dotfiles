@@ -229,7 +229,11 @@ fn why(input: &Input, p: &Pcts, k: usize, level: Level) -> String {
     }
     let mut complexity = Vec::new();
     if let Some(f) = m.max_complexity.as_ref().filter(|_| above(p.cc[k])) {
-        complexity.push(format!("cc {} ({})", f.value, collapse_generics(&f.name)));
+        complexity.push(format!(
+            "cyclomatic complexity {} ({})",
+            f.value,
+            collapse_generics(&f.name)
+        ));
     }
     if let Some(f) = m.max_nesting.as_ref().filter(|_| above(p.nest[k])) {
         complexity.push(format!(
@@ -470,6 +474,7 @@ mod tests {
             }),
             max_complexity: peak(cc),
             max_nesting: peak(1),
+            most_panics: None,
             panics,
             panic_density: (impl_lines >= 30).then(|| panics as f64 * 100.0 / impl_lines as f64),
             clones: 0,
@@ -553,7 +558,7 @@ mod tests {
         assert_eq!(
             worst.why.as_deref(),
             Some(
-                "size: largest fn 225 lines (build), 400 impl lines; complexity: cc 41 (<Node<…> as Build<…>>::build); fragility: 3.0 panics/100 lines (12 panics)"
+                "size: largest fn 225 lines (build), 400 impl lines; complexity: cyclomatic complexity 41 (<Node<…> as Build<…>>::build); fragility: 3.0 panics/100 lines (12 panics)"
             )
         );
         assert!(s[0].why.is_none() && s[0].level.is_none());

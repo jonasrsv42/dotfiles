@@ -74,22 +74,24 @@ enum Cmd {
 
 With --by file, JSON groups also carry the file's non-test fn metrics (see
 `bloaty metrics`): `largest_fn` {name, line, lines}, `max_complexity` and
-`max_nesting` {name, line, value}, `panics`, `clones`, and `panic_density`
-(panic sites per 100 impl lines, only from 30 impl lines). Fn fields are
-absent without fns; all are absent for whole-test files.
+`max_nesting` {name, line, value}, `most_panics` {name, line, value, sites}
+(the fn with the most panic sites and where they are, as in `bloaty metrics`;
+absent without panics), `panics`, `clones`, and `panic_density` (panic sites
+per 100 impl lines, only from 30 impl lines). Fn fields are absent without
+fns; all are absent for whole-test files.
 
 They also carry `smell` (files with >= 10 impl lines and a fn, not
 whole-test, build script or example), ranked against every such file in the
 linked workspace, so PATH doesn't change it: `size`, `complexity` and
-`fragility` as percentiles (largest fn or impl lines; cc, or nesting from 4;
-panic density of files with >= 2 panics, >= 30 impl lines and >= 1 per 100,
+`fragility` as percentiles (largest fn or impl lines; cyclomatic
+complexity, or nesting from 4; panic density of files with >= 2 panics, >= 30 impl lines and >= 1 per 100,
 fixed bands 0.9/0.75/0.5 at >= 3/1.5/1 per 100 when under 5 files qualify;
 a zero signal is 0), `front` (Pareto front on those three, 1 = nothing is
 worse on all) and `level`: \"hot\" for the first files walking the fronts
 with a dimension >= 0.9 (at most 5% of files), \"warm\" for the next by sum
 with one >= 0.75 (at most 10% more, none under 20 files), else null. Either
-level needs a fn of >= 40 lines, cc >= 10, nesting >= 4 or the panic
-density above. Levelled files have `why`: the dimensions behind it with
+level needs a fn of >= 40 lines, cyclomatic complexity >= 10, nesting
+>= 4 or the panic density above. Levelled files have `why`: the dimensions behind it with
 raw numbers. Text marks hot !! and warm !."
     )]
     Summary {
@@ -210,7 +212,9 @@ only scanned for panics and clones.
 Text: the --top most complex fns, as file:line and name. JSON: `root` and
 `functions`, every fn by file and line (--top doesn't apply), each with
 `name`, `file` (relative to root), `path` (absolute), `start_line`, `line`,
-`end_line`, `crate` and the numbers above."
+`end_line`, `crate`, the numbers above and `panic_sites` [{line, col, kind}]
+(one per panic, in source order; col 1-based; kind `unwrap`, `expect` or the
+macro with its `!`, like `assert_eq!`)."
     )]
     Metrics {
         #[command(flatten)]
