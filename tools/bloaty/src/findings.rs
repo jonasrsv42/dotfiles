@@ -51,6 +51,30 @@ pub struct Loc {
     pub krate: String,
 }
 
+impl Loc {
+    pub fn new(scan: &Scan, f: &FileAnalysis, name: &str, lines: (usize, usize, usize)) -> Loc {
+        let (start_line, line, end_line) = lines;
+        Loc {
+            name: name.to_string(),
+            file: f.rel.clone(),
+            path: f.path.display().to_string(),
+            start_line,
+            line,
+            end_line,
+            krate: scan.crate_name(f).to_string(),
+        }
+    }
+
+    pub fn of_fn(scan: &Scan, f: &FileAnalysis, func: &FnFact) -> Loc {
+        Loc::new(
+            scan,
+            f,
+            &func.name,
+            (func.start_line, func.line, func.end_line),
+        )
+    }
+}
+
 #[derive(Serialize, Debug)]
 pub struct Finding {
     pub kind: Kind,
@@ -266,23 +290,6 @@ impl<'a> Cx<'a> {
         (get(&self.refs), get(&self.test_refs))
     }
 
-    fn loc(&self, f: &FileAnalysis, name: &str, lines: (usize, usize, usize)) -> Loc {
-        let (start_line, line, end_line) = lines;
-        Loc {
-            name: name.to_string(),
-            file: f.rel.clone(),
-            path: f.path.display().to_string(),
-            start_line,
-            line,
-            end_line,
-            krate: self.scan.crate_name(f).to_string(),
-        }
-    }
-
-    fn fn_loc(&self, f: &FileAnalysis, func: &FnFact) -> Loc {
-        self.loc(f, &func.name, (func.start_line, func.line, func.end_line))
-    }
-
     /// The crate's `pub` items are likely API for code outside the repo.
     fn open_api(&self, f: &FileAnalysis) -> bool {
         f.crate_idx.is_some_and(|c| self.scan.crates[c].open_api)
@@ -339,26 +346,6 @@ fn category(test: bool) -> Category {
     if test { Category::Test } else { Category::Impl }
 }
 
-/// Code lines of a fn, minus items nested in its body (counted on their own).
-fn own_lines(f: &FileAnalysis, func: &FnFact) -> usize {
-    // Nested items arrive in source order: skip each range in one sweep.
-    let mut nested = func.nested.iter().peekable();
-    let mut count = 0;
-    let mut l = func.line;
-    let end = func.end_line.min(f.lines.len());
-    while l <= end {
-        while nested.next_if(|&&(_, e)| e < l).is_some() {}
-        match nested.peek() {
-            Some(&&(s, e)) if s <= l => l = e + 1,
-            _ => {
-                count += f.code_lines(l, l);
-                l += 1;
-            }
-        }
-    }
-    count
-}
-
 /// A fn long enough to be compared for duplicates.
 struct Member<'a> {
     file: &'a FileAnalysis,
@@ -382,7 +369,7 @@ fn duplicates(cx: &Cx, out: &mut Vec<Finding>) {
         .map(|(file, func)| Member {
             file,
             func,
-            lines: own_lines(file, func),
+            lines: file.own_lines(func),
         })
         .filter(|m| m.lines >= cx.opts.min_dup)
         .collect();
@@ -478,12 +465,16 @@ fn duplicate_finding(cx: &Cx, ms: &mut [&Member], identical: bool) -> Option<Fin
             lines: max,
             lines_saved: Some(saved),
             identical: Some(identical),
-            copies: Some(ms.iter().map(|m| cx.fn_loc(m.file, m.func)).collect()),
+            copies: Some(
+                ms.iter()
+                    .map(|m| Loc::of_fn(cx.scan, m.file, m.func))
+                    .collect(),
+            ),
             detail,
             ..Finding::new(
                 Kind::Duplicate,
                 category(all_test),
-                cx.fn_loc(first.file, first.func),
+                Loc::of_fn(cx.scan, first.file, first.func),
             )
         }
         // Identical groups first: same-shape ones are harder to merge.
@@ -541,7 +532,7 @@ fn unused(cx: &mut Cx, out: &mut Vec<Finding>) {
                     Some(t) => format!("impl {t} for {}", i.self_ty),
                     None => format!("impl {}", i.self_ty),
                 };
-                let at = cx.loc(f, &name, (i.start_line, i.line, i.end_line));
+                let at = Loc::new(cx.scan, f, &name, (i.start_line, i.line, i.end_line));
                 type_impls
                     .entry((f.crate_idx, i.self_name.as_str()))
                     .or_default()
@@ -563,11 +554,11 @@ fn unused(cx: &mut Cx, out: &mut Vec<Finding>) {
         for func in fns {
             let c = Candidate {
                 ident: &func.ident,
-                at: cx.fn_loc(f, func),
+                at: Loc::of_fn(cx.scan, f, func),
                 self_refs: func.self_refs,
                 test_self_refs: 0,
                 vis: func.vis,
-                lines: own_lines(f, func),
+                lines: f.own_lines(func),
                 impls: None,
             };
             push_unused(cx, out, f, c);
@@ -585,7 +576,12 @@ fn unused(cx: &mut Cx, out: &mut Vec<Finding>) {
                 |m: &HashMap<&str, u32>| m.get(item.name.as_str()).copied().unwrap_or(0);
             let c = Candidate {
                 ident: &item.name,
-                at: cx.loc(f, &item.name, (item.start_line, item.line, item.end_line)),
+                at: Loc::new(
+                    cx.scan,
+                    f,
+                    &item.name,
+                    (item.start_line, item.line, item.end_line),
+                ),
                 self_refs: self_refs(&cx.type_self_refs),
                 test_self_refs: self_refs(&cx.test_type_self_refs),
                 vis: item.vis,
@@ -774,7 +770,7 @@ fn collect_trait_impls<'a>(cx: &Cx<'a>, resolver: &Resolver) -> TraitImpls<'a> {
                     } else {
                         i.self_ty.clone()
                     };
-                    let at = cx.loc(f, &name, (i.start_line, i.line, i.end_line));
+                    let at = Loc::new(cx.scan, f, &name, (i.start_line, i.line, i.end_line));
                     t.impls.entry(key).or_default().push((at, &i.self_name));
                 }
                 ImplKind::Forwarding | ImplKind::Inherent => {}
@@ -834,7 +830,7 @@ fn single_impl_traits(cx: &mut Cx, out: &mut Vec<Finding>) {
             continue;
         }
         let lines = f.code_lines(t.line, t.end_line);
-        let at = cx.loc(f, &t.name, (t.start_line, t.line, t.end_line));
+        let at = Loc::new(cx.scan, f, &t.name, (t.start_line, t.line, t.end_line));
         out.push(
             Finding {
                 vis: Some(t.vis),
@@ -892,7 +888,7 @@ fn pass_through(cx: &mut Cx, out: &mut Vec<Finding>) {
                 Some((r, t)) => format!("{} (+{t} in tests)", plural(r, "ref")),
                 None => format!("refs unknown ({defs} fns named {})", func.ident),
             };
-            let lines = own_lines(f, func);
+            let lines = f.own_lines(func);
             let callers = refs.map_or(0xFFFF, |(r, t)| (r + t).min(0xFFFF));
             out.push(
                 Finding {
@@ -902,7 +898,11 @@ fn pass_through(cx: &mut Cx, out: &mut Vec<Finding>) {
                     refs: refs.map(|(r, _)| r),
                     test_refs: refs.map(|(_, t)| t),
                     detail: format!("forwards to {target}; {refs_text}"),
-                    ..Finding::new(Kind::PassThrough, Category::Impl, cx.fn_loc(f, func))
+                    ..Finding::new(
+                        Kind::PassThrough,
+                        Category::Impl,
+                        Loc::of_fn(cx.scan, f, func),
+                    )
                 }
                 // Inline the least-called first.
                 .rank(callers, lines),
@@ -915,7 +915,7 @@ fn pass_through(cx: &mut Cx, out: &mut Vec<Finding>) {
 fn long_fns(cx: &Cx, duplicated: &HashSet<(String, usize)>, out: &mut Vec<Finding>) {
     for f in cx.focus() {
         for func in &f.facts.fns {
-            let lines = own_lines(f, func);
+            let lines = f.own_lines(func);
             if lines > cx.opts.long_fn {
                 let category = category(func.in_test || f.whole_test);
                 out.push(
@@ -926,7 +926,7 @@ fn long_fns(cx: &Cx, duplicated: &HashSet<(String, usize)>, out: &mut Vec<Findin
                         } else {
                             format!("{lines} own code lines")
                         },
-                        ..Finding::new(Kind::LongFn, category, cx.fn_loc(f, func))
+                        ..Finding::new(Kind::LongFn, category, Loc::of_fn(cx.scan, f, func))
                     }
                     .rank(0, lines),
                 );
@@ -943,7 +943,7 @@ fn test_heavy(cx: &Cx, out: &mut Vec<Finding>) {
                 .path
                 .file_name()
                 .map_or(String::new(), |n| n.to_string_lossy().into_owned());
-            let at = cx.loc(f, &name, (1, 1, f.lines.len()));
+            let at = Loc::new(cx.scan, f, &name, (1, 1, f.lines.len()));
             out.push(
                 Finding {
                     lines: c.test,
@@ -1028,10 +1028,15 @@ pub fn report<'a>(
 
 /// Long names with generics read `<Node<…> as GraphBuilder<…>>::build` in
 /// text output; JSON keeps them whole.
-fn short_name(name: &str) -> String {
+pub fn short_name(name: &str) -> String {
     if name.chars().count() <= 60 {
         return name.to_string();
     }
+    collapse_generics(name)
+}
+
+/// `<Node<A, B> as Build<C>>::f` -> `<Node<…> as Build<…>>::f`.
+pub fn collapse_generics(name: &str) -> String {
     let mut out = String::new();
     let mut depth = 0;
     let mut prev = ' ';

@@ -2,7 +2,9 @@
 
 mod findings;
 mod lines;
+mod metrics;
 mod scan;
+mod smell;
 mod summary;
 #[cfg(test)]
 mod testutil;
@@ -22,7 +24,8 @@ use summary::{GroupBy, SortBy};
 
 Workflow: `bloaty summary` to see where the code is, drill in with
 `--by module --depth N` or a PATH, then `bloaty findings PATH --json` (or
-`--kind duplicate` etc.) for ranked places to cut. Findings are hints: check
+`--kind duplicate` etc.) for ranked places to cut, and `bloaty metrics PATH`
+for per-fn complexity, nesting and panic sites. Findings are hints: check
 each one, and compile after removing anything.
 
 The crates around PATH are analysed together with every crate linked to them
@@ -66,6 +69,29 @@ struct Common {
 #[derive(Subcommand)]
 enum Cmd {
     /// Code lines split into implementation, test, doc and comment.
+    #[command(
+        long_about = "Code lines split into implementation, test, doc and comment.
+
+With --by file, JSON groups also carry the file's non-test fn metrics (see
+`bloaty metrics`): `largest_fn` {name, line, lines}, `max_complexity` and
+`max_nesting` {name, line, value}, `panics`, `clones`, and `panic_density`
+(panic sites per 100 impl lines, only from 30 impl lines). Fn fields are
+absent without fns; all are absent for whole-test files.
+
+They also carry `smell` (files with >= 10 impl lines and a fn, not
+whole-test, build script or example), ranked against every such file in the
+linked workspace, so PATH doesn't change it: `size`, `complexity` and
+`fragility` as percentiles (largest fn or impl lines; cc, or nesting from 4;
+panic density of files with >= 2 panics, >= 30 impl lines and >= 1 per 100,
+fixed bands 0.9/0.75/0.5 at >= 3/1.5/1 per 100 when under 5 files qualify;
+a zero signal is 0), `front` (Pareto front on those three, 1 = nothing is
+worse on all) and `level`: \"hot\" for the first files walking the fronts
+with a dimension >= 0.9 (at most 5% of files), \"warm\" for the next by sum
+with one >= 0.75 (at most 10% more, none under 20 files), else null. Either
+level needs a fn of >= 40 lines, cc >= 10, nesting >= 4 or the panic
+density above. Levelled files have `why`: the dimensions behind it with
+raw numbers. Text marks hot !! and warm !."
+    )]
     Summary {
         #[command(flatten)]
         common: Common,
@@ -159,6 +185,40 @@ The JSON report also has `root`, `thresholds`, `test_features`, `totals` and
         #[arg(long)]
         include_pub: bool,
     },
+    /// Per-fn complexity, nesting, parameters, panic sites and clones.
+    #[command(
+        long_about = "Per-fn complexity, nesting, parameters, panic sites and clones.
+
+Every non-test fn (free, inherent, trait impl or default) in PATH. Closures
+count toward their fn; fns nested in a body are measured on their own.
+  lines       own code lines (nested items excluded)
+  complexity  1 + each if / else if, match (once, whatever its arms),
+              while/for/loop, && / ||, let-else; ? adds nothing
+  nesting     deepest if/match/loop/closure/let-else/block ({ }, unsafe,
+              async, const) inside the body (0 for straight-line code;
+              else-if, match guards and a construct's own { } don't add a
+              level)
+  params      parameters, self excluded
+  panics      .unwrap(), .expect(x) (not .expect(x)?), panic!,
+              unreachable!, todo!, unimplemented!, assert!, assert_eq!,
+              assert_ne! (debug_assert* compile out, so don't count)
+  clones      .clone() calls
+Macro arguments that parse as comma-separated expressions (format!, vec!,
+assert!, ...) count like code; others (tokio::select!, items in a body) are
+only scanned for panics and clones.
+
+Text: the --top most complex fns, as file:line and name. JSON: `root` and
+`functions`, every fn by file and line (--top doesn't apply), each with
+`name`, `file` (relative to root), `path` (absolute), `start_line`, `line`,
+`end_line`, `crate` and the numbers above."
+    )]
+    Metrics {
+        #[command(flatten)]
+        common: Common,
+        /// Show the N most complex fns; 0 shows all (text only).
+        #[arg(long, default_value_t = 25)]
+        top: usize,
+    },
 }
 
 fn main() {
@@ -207,14 +267,24 @@ fn threads_within_address_limit() -> usize {
 fn run(max_depth: usize) -> i32 {
     let cli = Cli::parse();
     let common = match &cli.cmd {
-        Cmd::Summary { common, .. } | Cmd::Findings { common, .. } => common,
+        Cmd::Summary { common, .. }
+        | Cmd::Findings { common, .. }
+        | Cmd::Metrics { common, .. } => common,
     };
     let opts = scan::ScanOptions {
         test_features: common.test_features.clone(),
         no_test_features: common.no_test_features.clone(),
         max_depth,
-        // Line counts only need the requested crates' own module trees.
-        focus_crates_only: matches!(cli.cmd, Cmd::Summary { .. }),
+        // Line counts and metrics only need the requested crates' own
+        // module trees; smell (`summary --by file`) ranks against the whole
+        // linked workspace, whatever PATH is.
+        focus_crates_only: matches!(
+            cli.cmd,
+            Cmd::Summary {
+                by: Some(GroupBy::Crate | GroupBy::Module) | None,
+                ..
+            } | Cmd::Metrics { .. }
+        ),
     };
     let scan = match scan::scan(&common.paths, &opts) {
         Ok(s) => s,
@@ -278,6 +348,14 @@ fn run(max_depth: usize) -> i32 {
                 to_json(&report)
             } else {
                 findings::render(&report, &scan)
+            }
+        }
+        Cmd::Metrics { common, top } => {
+            let report = metrics::report(&scan);
+            if common.json {
+                to_json(&report)
+            } else {
+                metrics::render(&report, &scan, top)
             }
         }
     };

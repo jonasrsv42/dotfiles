@@ -2,22 +2,29 @@
 --
 -- A dim column of implementation line counts beside every file and
 -- directory (tests, docs and comments excluded), coloured warmer where code
--- piles up, with a `•` on files/directories holding bloat findings
--- (duplicate bodies, unused code, single-impl traits). See
--- tools/bloaty: `bloaty summary` / `bloaty findings` explain the numbers.
+-- piles up, with
+--   `•`  on files/directories holding bloat findings (duplicate bodies,
+--        unused code, single-impl traits), and
+--   `●`  on files that smell: red = hot (worst ~5% of the workspace by
+--        size, complexity or panics), yellow = warm (next ~10%).
+--        Directories get a red `●` when a hot file is inside.
+-- `B` in the tree explains a file's numbers. See tools/bloaty: `bloaty
+-- summary` / `bloaty findings` / `bloaty metrics` explain them too.
 --
 -- The numbers come from two background `bloaty` runs per tree root (~0.1s
 -- on a 200k-line workspace), redone once saves and file changes settle;
 -- rendering only looks them up. Roots bloaty refuses (not in a cargo
 -- project or git repository) show nothing and run nothing again.
 --   <leader>bt     toggle the column
+--   B (in tree)    explain the file/directory under the cursor
 --   :BloatyRefresh recompute now (also re-checks refused roots)
 
 local M = {}
 
 local enabled = true
 -- Tree root -> { real = realpath, ready, loc = {path -> impl lines},
--- marks = {path -> findings}, total, gen, jobs, timer }. `skip`: bloaty
+-- marks = {path -> findings}, smell = {path -> "hot"|"warm"},
+-- files = {path -> summary group}, total, gen, jobs, timer }. `skip`: bloaty
 -- refused the root. `stale`: changed while no tree showed it; recomputed
 -- when one does.
 local roots = {}
@@ -89,7 +96,9 @@ local function run(args, cwd, cb)
         end
         return cb(nil, res.code)
       end
-      local decoded, data = pcall(vim.json.decode, res.stdout)
+      -- JSON nulls as nil (not the truthy vim.NIL).
+      local decoded, data =
+        pcall(vim.json.decode, res.stdout, { luanil = { object = true, array = true } })
       cb(decoded and data or nil, 0)
     end)
   end)
@@ -108,7 +117,7 @@ local function refresh(dir)
   end
   r.gen = (r.gen or 0) + 1
   local gen, pending = r.gen, 2
-  local loc, marks, total, refused = {}, {}, 0, false
+  local loc, marks, smell, files, total, refused = {}, {}, {}, {}, 0, false
   local function done(code)
     refused = refused or code == 2
     pending = pending - 1
@@ -118,15 +127,36 @@ local function refresh(dir)
     if refused then
       r.skip = true
     else
-      r.loc, r.marks, r.total, r.ready = loc, marks, total, true
+      r.loc, r.marks, r.smell, r.files, r.total, r.ready = loc, marks, smell, files, total, true
     end
     redraw()
   end
   local summary = run({ "summary", dir, "--by", "file", "--json" }, dir, function(s, code)
+      -- Smell is ranked across the whole workspace: changes anywhere in it
+      -- can shift this root's dots (see `changed`).
+      r.workspace = s and s.root
       for _, g in ipairs(s and s.groups or {}) do
+        if g.path then
+          files[g.path] = g
+        end
         if g.path and g.impl > 0 then
           add_up(loc, g.path, r.real, g.impl)
           total = total + g.impl
+          local level = g.smell and g.smell.level
+          if level == "hot" then
+            -- Hot shows up the tree; warm only on the file itself (warm
+            -- directories would colour most of the tree).
+            local p = g.path
+            while p and #p >= #r.real do
+              smell[p] = "hot"
+              if p == r.real then
+                break
+              end
+              p = vim.fs.dirname(p)
+            end
+          elseif level == "warm" and smell[g.path] ~= "hot" then
+            smell[g.path] = "warm"
+          end
         end
       end
       done(code)
@@ -180,7 +210,9 @@ local function changed(path)
   end
   local shown = shown_roots()
   for dir, r in pairs(roots) do
-    if not r.skip and (inside(path, dir) or inside(path, r.real)) then
+    local within = inside(path, dir) or inside(path, r.real)
+      or (r.workspace and inside(path, r.workspace))
+    if not r.skip and within then
       if shown[dir] then
         r.timer = r.timer or vim.uv.new_timer()
         r.timer:stop()
@@ -225,7 +257,7 @@ local function heat(node, n, r, key)
 end
 
 --- neo-tree component (`filesystem.components.bloaty`).
-function M.component(_, node, state)
+function M.component(_, node, state, width)
   if not enabled or not state.path or not node.path then
     return {}
   end
@@ -238,12 +270,72 @@ function M.component(_, node, state)
   if not n then
     return {}
   end
+  -- When the name leaves no room, neo-tree would cut this column from the
+  -- left (229 -> "29"): drop it whole instead. 9 columns + 1 padding.
+  if width and vim.api.nvim_strwidth(node.name or "") + 10 > width then
+    return {}
+  end
+  local level = r.smell[key]
+  -- The root row would always be hot: leave it plain.
+  if node:get_depth() == 1 then
+    level = nil
+  end
   return {
     { text = r.marks[key] and "•" or " ", highlight = "BloatyMark" },
+    {
+      text = level and "●" or " ",
+      highlight = level == "hot" and "BloatySmellHot" or "BloatySmellWarm",
+    },
     { text = string.format("%5s ", human(n)), highlight = heat(node, n, r, key) },
   }
 end
 
+--- Explains the node under the cursor in a neo-tree window (mapped to `B`).
+function M.explain(state)
+  local node = state.tree:get_node()
+  local r = state.path and roots[state.path]
+  if not node or not node.path then
+    return
+  end
+  local function say(msg)
+    vim.notify(msg, vim.log.levels.INFO, { title = "bloaty" })
+  end
+  if not r or r.skip then
+    return say("not a Rust project (bloaty only measures cargo crates)")
+  elseif not r.ready then
+    return say("still computing…")
+  end
+  local key = r.real .. node.path:sub(#state.path + 1)
+  local g = r.files[key]
+  if node.type ~= "directory" and not g then
+    return say(node.name .. ": not Rust code bloaty measures")
+  end
+  local lines = { string.format("%s: %s impl lines", node.name, r.loc[key] or 0) }
+  if g then
+    table.insert(lines, string.format("tests %d, docs %d, comments %d", g.test, g.doc, g.comment))
+    if g.largest_fn then
+      table.insert(lines, string.format("largest fn: %s (%d lines)", g.largest_fn.name, g.largest_fn.lines))
+    end
+    if g.max_complexity then
+      table.insert(lines, string.format("max complexity: %d (%s)", g.max_complexity.value, g.max_complexity.name))
+    end
+    if (g.panics or 0) > 0 then
+      table.insert(lines, string.format("panic sites: %d", g.panics))
+    end
+    local s = g.smell
+    if s and type(s.level) == "string" then
+      table.insert(lines, string.format("%s: %s", s.level, s.why or ""))
+    end
+  elseif r.smell[key] == "hot" then
+    table.insert(lines, "contains hot files")
+  end
+  if r.marks[key] then
+    table.insert(lines, string.format("%d bloat findings (bloaty findings %s)", r.marks[key], node.path))
+  end
+  say(table.concat(lines, "\n"))
+end
+
+--- Toggles the neo-tree column.
 function M.toggle()
   enabled = not enabled
   redraw()
@@ -264,6 +356,8 @@ function M.setup()
     BloatyWarm = "Normal",
     BloatyHot = "DiagnosticWarn",
     BloatyMark = "DiagnosticHint",
+    BloatySmellHot = "DiagnosticError",
+    BloatySmellWarm = "DiagnosticWarn",
   }) do
     vim.api.nvim_set_hl(0, name, { link = link, default = true })
   end

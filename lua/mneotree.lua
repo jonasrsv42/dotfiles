@@ -45,9 +45,18 @@ require("neo-tree").setup({
     -- (lua/mbloaty.lua). The renderers are neo-tree v3's defaults plus it;
     -- it gives way first (zindex 5) when names need the width.
     components = {
-      bloaty = function(config, node, state)
-        return require("mbloaty").component(config, node, state)
+      -- (config, node, state, remaining width)
+      bloaty = function(...)
+        return require("mbloaty").component(...)
       end,
+    },
+    window = {
+      mappings = {
+        -- bloaty: explain the line count / smell of the node under the cursor.
+        ["B"] = function(state)
+          require("mbloaty").explain(state)
+        end,
+      },
     },
     renderers = {
       directory = {

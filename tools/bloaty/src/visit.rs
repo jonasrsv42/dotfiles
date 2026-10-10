@@ -1,7 +1,7 @@
 //! Walks a parsed file once and records the facts the reports need: which line
 //! ranges are test code, module declarations, imports, every function (size,
-//! body hashes, whether it just forwards), traits/types, impls and derives, and
-//! how often each name is mentioned.
+//! body hashes, whether it just forwards, complexity and panic sites),
+//! traits/types, impls and derives, and how often each name is mentioned.
 
 use proc_macro2::{Delimiter, TokenStream, TokenTree};
 use quote::ToTokens;
@@ -142,6 +142,35 @@ pub struct FnFact {
     pub forwards_to: Option<String>,
     /// For fns spanning a few lines.
     pub body_hash: Option<BodyHash>,
+    /// Complexity and fragility measures; `None` for test code.
+    pub metrics: Option<FnMetrics>,
+}
+
+/// Per-fn measures over the body, closures included and nested items
+/// (fns, impls, mods) left out: those are measured on their own.
+#[derive(Serialize, Clone, Copy, Default, PartialEq, Eq, Debug)]
+pub struct FnMetrics {
+    /// Branching complexity, cognitive-style: 1, plus one per `if` (each
+    /// `else if` too), `match` (however many arms: a flat match reads as one
+    /// decision), `while`/`for`/`loop`, `&&`/`||` and `let .. else`. `?`
+    /// adds nothing: early returns on error are the normal path. Macro arguments count when they parse as
+    /// comma-separated expressions (`format!`, `vec!`, `assert!`), not
+    /// otherwise (`tokio::select!`).
+    pub complexity: u32,
+    /// Deepest nesting of `if`/`match`/loops/closures/`let .. else`/block
+    /// expressions (`{ }`, `unsafe`, `async`, `const`) in the body: 0 for
+    /// straight-line code, 1 inside one `if`. An `else if` and match guards
+    /// sit at their construct's depth, and a block that is a construct's own
+    /// body (a match arm's or closure's `{ }`) doesn't add a level.
+    pub nesting: u32,
+    /// Parameters, `self` excluded.
+    pub params: u32,
+    /// `.unwrap()`, `.expect(x)` (not `.expect(x)?`), `panic!`,
+    /// `unreachable!`, `todo!`, `unimplemented!`, `assert!`, `assert_eq!`,
+    /// `assert_ne!`, also inside macro arguments.
+    pub panics: u32,
+    /// `.clone()` calls, also inside macro arguments.
+    pub clones: u32,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -468,6 +497,7 @@ impl Visitor<'_> {
                 && end_line >= line + 4
                 && !is_struct_literal(s.block))
             .then(|| body_hashes(s.block)),
+            metrics: (!in_test).then(|| fn_metrics(s.sig, s.block)),
         }
     }
 
@@ -1431,6 +1461,223 @@ fn body_hashes(block: &Block) -> BodyHash {
     }
 }
 
+/// Macros that panic in release builds (`debug_assert*` compile out).
+const PANIC_MACROS: &[&str] = &[
+    "panic",
+    "unreachable",
+    "todo",
+    "unimplemented",
+    "assert",
+    "assert_eq",
+    "assert_ne",
+];
+
+fn fn_metrics(sig: &syn::Signature, block: &Block) -> FnMetrics {
+    let mut m = MetricsWalk {
+        m: FnMetrics {
+            complexity: 1,
+            params: sig
+                .inputs
+                .iter()
+                .filter(|a| matches!(a, FnArg::Typed(_)))
+                .count() as u32,
+            ..Default::default()
+        },
+        depth: 0,
+    };
+    m.visit_block(block);
+    m.m
+}
+
+/// A second, small walk over one fn body: the main visitor's bookkeeping
+/// (test depth, refs) doesn't fit counting per fn, and nested fns must
+/// start from zero.
+struct MetricsWalk {
+    m: FnMetrics,
+    depth: u32,
+}
+
+impl MetricsWalk {
+    fn nested(&mut self, f: impl FnOnce(&mut Self)) {
+        self.depth += 1;
+        self.m.nesting = self.m.nesting.max(self.depth);
+        f(self);
+        self.depth -= 1;
+    }
+
+    /// A construct's body: a `{ }` here is the construct's, not a level.
+    fn body(&mut self, e: &Expr) {
+        match e {
+            Expr::Block(b) if b.label.is_none() => self.visit_block(&b.block),
+            _ => self.visit_expr(e),
+        }
+    }
+
+    /// Panic sites and clones in macro tokens that aren't expressions
+    /// (`tokio::select!`, `vec![x; n]`, items): `. unwrap ( )`,
+    /// `. expect ( x )` not followed by `?`, `. clone ( )` and `panic ! ..`.
+    fn scan_tokens(&mut self, tokens: TokenStream) {
+        let toks: Vec<TokenTree> = tokens.into_iter().collect();
+        for (i, tt) in toks.iter().enumerate() {
+            match tt {
+                TokenTree::Group(g) => self.scan_tokens(g.stream()),
+                TokenTree::Ident(id) => {
+                    let after_dot =
+                        i > 0 && matches!(&toks[i - 1], TokenTree::Punct(p) if p.as_char() == '.');
+                    // Number of call arguments, if a call follows.
+                    let args = match toks.get(i + 1) {
+                        Some(TokenTree::Group(g)) if g.delimiter() == Delimiter::Parenthesis => {
+                            Some(top_level_args(g.stream()))
+                        }
+                        _ => None,
+                    };
+                    let is_punct = |j: usize, c: char| matches!(toks.get(j), Some(TokenTree::Punct(p)) if p.as_char() == c);
+                    let panic = match args {
+                        Some(0) => after_dot && id == "unwrap",
+                        Some(1) => after_dot && id == "expect" && !is_punct(i + 2, '?'),
+                        Some(_) => false,
+                        None => {
+                            !after_dot
+                                && is_punct(i + 1, '!')
+                                && PANIC_MACROS.iter().any(|m| id == m)
+                        }
+                    };
+                    self.m.panics += u32::from(panic);
+                    self.m.clones += u32::from(after_dot && args == Some(0) && id == "clone");
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
+impl<'ast> Visit<'ast> for MetricsWalk {
+    fn visit_item(&mut self, _: &'ast Item) {}
+
+    fn visit_expr_if(&mut self, e: &'ast syn::ExprIf) {
+        self.m.complexity += 1;
+        self.visit_expr(&e.cond);
+        self.nested(|v| v.visit_block(&e.then_branch));
+        match e.else_branch.as_ref().map(|(_, e)| &**e) {
+            Some(Expr::If(elif)) => self.visit_expr_if(elif),
+            Some(other) => self.nested(|v| v.body(other)),
+            None => {}
+        }
+    }
+
+    fn visit_expr_match(&mut self, e: &'ast syn::ExprMatch) {
+        self.m.complexity += 1;
+        self.visit_expr(&e.expr);
+        // Guards sit at the match's own depth, like its scrutinee.
+        for (_, guard) in e.arms.iter().filter_map(|a| a.guard.as_ref()) {
+            self.visit_expr(guard);
+        }
+        self.nested(|v| e.arms.iter().for_each(|a| v.body(&a.body)));
+    }
+
+    fn visit_expr_while(&mut self, e: &'ast syn::ExprWhile) {
+        self.m.complexity += 1;
+        self.visit_expr(&e.cond);
+        self.nested(|v| v.visit_block(&e.body));
+    }
+
+    fn visit_expr_for_loop(&mut self, e: &'ast syn::ExprForLoop) {
+        self.m.complexity += 1;
+        self.visit_expr(&e.expr);
+        self.nested(|v| v.visit_block(&e.body));
+    }
+
+    fn visit_expr_loop(&mut self, e: &'ast syn::ExprLoop) {
+        self.m.complexity += 1;
+        self.nested(|v| v.visit_block(&e.body));
+    }
+
+    fn visit_expr_closure(&mut self, e: &'ast syn::ExprClosure) {
+        self.nested(|v| v.body(&e.body));
+    }
+
+    fn visit_expr_block(&mut self, e: &'ast syn::ExprBlock) {
+        self.nested(|v| v.visit_block(&e.block));
+    }
+
+    fn visit_expr_unsafe(&mut self, e: &'ast syn::ExprUnsafe) {
+        self.nested(|v| v.visit_block(&e.block));
+    }
+
+    fn visit_expr_async(&mut self, e: &'ast syn::ExprAsync) {
+        self.nested(|v| v.visit_block(&e.block));
+    }
+
+    fn visit_expr_const(&mut self, e: &'ast syn::ExprConst) {
+        self.nested(|v| v.visit_block(&e.block));
+    }
+
+    fn visit_local_init(&mut self, l: &'ast syn::LocalInit) {
+        self.visit_expr(&l.expr);
+        if let Some((_, diverge)) = &l.diverge {
+            self.m.complexity += 1;
+            self.nested(|v| v.body(diverge));
+        }
+    }
+
+    fn visit_expr_binary(&mut self, e: &'ast syn::ExprBinary) {
+        if matches!(e.op, syn::BinOp::And(_) | syn::BinOp::Or(_)) {
+            self.m.complexity += 1;
+        }
+        visit::visit_expr_binary(self, e);
+    }
+
+    fn visit_expr_try(&mut self, e: &'ast syn::ExprTry) {
+        // `p.expect(tok)?` is a parser's fallible method, not
+        // `Option::expect`.
+        match &*e.expr {
+            Expr::MethodCall(m) if m.method == "expect" && m.args.len() == 1 => {
+                visit::visit_expr_method_call(self, m)
+            }
+            _ => visit::visit_expr_try(self, e),
+        }
+    }
+
+    fn visit_expr_method_call(&mut self, e: &'ast syn::ExprMethodCall) {
+        let (m, n) = (&e.method, e.args.len());
+        if (m == "unwrap" && n == 0) || (m == "expect" && n == 1) {
+            self.m.panics += 1;
+        } else if m == "clone" && n == 0 {
+            self.m.clones += 1;
+        }
+        visit::visit_expr_method_call(self, e);
+    }
+
+    fn visit_macro(&mut self, m: &'ast syn::Macro) {
+        if PANIC_MACROS.contains(&last_segment(&m.path).as_str()) {
+            self.m.panics += 1;
+        }
+        // Most macros take expressions (`format!`, `vec!`, `assert!`): walk
+        // them like code so their branches and closures count.
+        match Punctuated::<Expr, Token![,]>::parse_terminated.parse2(m.tokens.clone()) {
+            Ok(args) => args.iter().for_each(|a| self.visit_expr(a)),
+            Err(_) => self.scan_tokens(m.tokens.clone()),
+        }
+    }
+}
+
+/// Comma-separated arguments in a call's parentheses (a trailing comma
+/// doesn't add one).
+fn top_level_args(ts: TokenStream) -> usize {
+    let mut n = 0;
+    let mut pending = false;
+    for tt in ts {
+        match tt {
+            TokenTree::Punct(p) if p.as_char() == ',' => {
+                n += usize::from(pending);
+                pending = false;
+            }
+            _ => pending = true,
+        }
+    }
+    n + usize::from(pending)
+}
+
 /// A type for display: generics kept so different impls stay apart,
 /// lifetimes dropped. Text output shortens long ones; JSON keeps them.
 fn display_type(ty: &Type) -> String {
@@ -1844,6 +2091,146 @@ mod tests {
     fn raw_identifier_modules_resolve_unraw() {
         let f = facts("mod r#async;");
         assert_eq!(f.mod_decls[0].name, "async");
+    }
+
+    fn metrics(src: &str, name: &str) -> FnMetrics {
+        fact(&facts(src), name)
+            .metrics
+            .unwrap_or_else(|| panic!("{name} not measured"))
+    }
+
+    #[test]
+    fn complexity_counts_branches() {
+        let cc = |body: &str| metrics(&format!("fn f(x: u32) {{ {body} }}"), "f").complexity;
+        assert_eq!(cc("let y = x + 1;"), 1);
+        assert_eq!(cc("if x > 1 { a() }"), 2);
+        assert_eq!(cc("if x > 1 { a() } else if x > 2 { b() } else { c() }"), 3);
+        assert_eq!(cc("match x { 0 => a(), 1 => b(), _ => c() }"), 2);
+        assert_eq!(cc("match x { _ => a() }"), 2);
+        assert_eq!(cc("while x > 0 {} for i in v {} loop { break }"), 4);
+        assert_eq!(cc("if x > 1 && x < 5 || x == 9 { a() }"), 4);
+        assert_eq!(cc("let y = g()?; h(y?)?;"), 1);
+        assert_eq!(cc("let Some(y) = g() else { return };"), 2);
+        // Guards add nothing themselves; their `&&` do count.
+        assert_eq!(cc("match x { n if n > 1 && n < 3 => a(), _ => b() }"), 3);
+    }
+
+    #[test]
+    fn closures_count_toward_their_fn_and_nested_fns_dont() {
+        let src = "fn outer(v: Vec<u32>) {\n    v.iter().for_each(|x| if *x > 1 { a() });\n    fn inner(x: u32) { if x > 1 { b() } if x > 2 { c() } }\n    impl S { fn m(&self) { if t { d() } } }\n}";
+        let f = facts(src);
+        let m = |n: &str| fact(&f, n).metrics.unwrap();
+        assert_eq!(m("outer").complexity, 2);
+        assert_eq!(m("outer").nesting, 2);
+        assert_eq!(m("inner").complexity, 3);
+        assert_eq!(m("S::m").complexity, 2);
+    }
+
+    #[test]
+    fn nesting_depth() {
+        let depth = |body: &str| metrics(&format!("fn f() {{ {body} }}"), "f").nesting;
+        assert_eq!(depth("a(); b();"), 0);
+        assert_eq!(depth("if x { a() }"), 1);
+        // else-if chains stay at one level.
+        assert_eq!(depth("if x { a() } else if y { b() } else { c() }"), 1);
+        assert_eq!(depth("for i in v { if x { a() } }"), 2);
+        // A match arm's own `{ }` is not a level; a block inside it is.
+        assert_eq!(depth("match x { A => { if y { a() } } _ => {} }"), 2);
+        assert_eq!(depth("match x { A => { { a() } } _ => {} }"), 2);
+        assert_eq!(depth("let g = || { if x { a() } };"), 2);
+        assert_eq!(depth("unsafe { a() }"), 1);
+        assert_eq!(depth("let y = async { loop { if z { a() } } };"), 3);
+        assert_eq!(depth("let Some(y) = o else { if x { a() } return };"), 2);
+        assert_eq!(depth("let y = const { 1 };"), 1);
+        // Guards sit at the match's depth.
+        assert_eq!(
+            depth("match x { n if (|| { if n > 1 { true } else { false } })() => 1, _ => 0 }"),
+            2
+        );
+    }
+
+    #[test]
+    fn params_exclude_self() {
+        let src = "struct S;\nimpl S { fn m(&self, a: u8, (b, c): (u8, u8)) {} }\nfn f() {}";
+        assert_eq!(metrics(src, "S::m").params, 2);
+        assert_eq!(metrics(src, "f").params, 0);
+    }
+
+    #[test]
+    fn panic_sites_and_clones_incl_macro_arguments() {
+        let src = r#"
+            fn f(x: Option<u8>, r: Result<u8, E>, s: String) {
+                x.unwrap();
+                r.expect("ok");
+                x.unwrap_or(0);
+                x.expect_none_ish(1, 2);
+                println!("{} {}", x.unwrap(), r.clone().expect("e"));
+                vec![s.clone(), s.clone()];
+                assert!(x.map(|v| { if v > 1 { panic!("big") } v }).is_some());
+                std::panic!("boom");
+                if false { unreachable!() } else { todo!() }
+                unimplemented!();
+                let t = s.clone();
+                let c = Clone::clone(&s);
+                let _ = "x.unwrap() in a string";
+            }
+            "#;
+        let m = metrics(src, "f");
+        assert_eq!(m.panics, 10);
+        assert_eq!(m.clones, 4);
+    }
+
+    #[test]
+    fn asserts_panic_in_release_debug_asserts_dont() {
+        let src = "fn f(x: u8) {\n    assert!(x > 1);\n    assert_eq!(x, 2, \"msg\");\n    std::assert_ne!(x, 3);\n    debug_assert!(x > 1);\n    debug_assert_eq!(x, 2);\n}";
+        assert_eq!(metrics(src, "f").panics, 3);
+    }
+
+    #[test]
+    fn expression_macro_arguments_count_like_code() {
+        let m = |body: &str| metrics(&format!("fn f(x: u8) {{ {body} }}"), "f");
+        let a = m("println!(\"{}\", if x > 1 { 1 } else { 2 });");
+        assert_eq!((a.complexity, a.nesting), (2, 1));
+        let a = m("assert!(v.iter().any(|y| *y > 1 && *y < 3), \"{}\", g()?);");
+        assert_eq!((a.complexity, a.nesting, a.panics), (2, 1, 1));
+        // Nested macros are walked once, not also token-scanned.
+        let a = m("vec![format!(\"{}\", x.unwrap()), s.clone()];");
+        assert_eq!((a.panics, a.clones), (1, 1));
+        // Not expressions: only panic sites and clones are seen.
+        let a = m("tokio::select! { v = rx.recv() => if v { v.unwrap() } else { w.clone() }, }");
+        assert_eq!((a.complexity, a.nesting, a.panics, a.clones), (1, 0, 1, 1));
+    }
+
+    #[test]
+    fn fallible_expect_is_not_a_panic() {
+        let m = |body: &str| metrics(&format!("fn f() -> R {{ {body} }}"), "f");
+        assert_eq!(m("p.expect(Token::Comma)?; Ok(())").panics, 0);
+        assert_eq!(m("p.expect(Token::Comma)?; Ok(())").complexity, 1);
+        // Token scan: one argument and no `?` only.
+        assert_eq!(
+            m("m!(p.expect(t)?; q.expect(a, b); r.expect(\"x\"))").panics,
+            1
+        );
+    }
+
+    #[test]
+    fn statement_item_macros_count_toward_their_fn() {
+        // syn sees `m! { .. }` in a body as a statement macro, so `inner`
+        // gets no fact of its own: its panic sites land in `outer`.
+        let f = facts("fn outer() { my_macro! { fn inner() { x.unwrap(); } } }");
+        assert_eq!(fact(&f, "outer").metrics.unwrap().panics, 1);
+        assert!(f.fns.iter().all(|f| f.name != "inner"));
+    }
+
+    #[test]
+    fn test_code_is_not_measured() {
+        let f = facts(
+            "fn a() { x.unwrap(); }\n#[cfg(test)]\nmod tests { fn helper() { x.unwrap(); } #[test] fn t() {} }\nimpl S { #[cfg(test)] fn only(&self) {} }",
+        );
+        assert!(fact(&f, "a").metrics.is_some());
+        for n in ["helper", "t", "S::only"] {
+            assert!(fact(&f, n).metrics.is_none(), "{n}");
+        }
     }
 
     #[test]

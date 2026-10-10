@@ -5,7 +5,7 @@
 //! classification and cross-file matching always see the whole workspace.
 
 use crate::lines::{self, LineClass};
-use crate::visit::{self, Ctx, FileFacts};
+use crate::visit::{self, Ctx, FileFacts, FnFact};
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Component, Path, PathBuf};
@@ -65,6 +65,11 @@ impl Crate {
     pub fn has_build_script(&self) -> bool {
         self.build_script.is_some()
     }
+
+    /// build.rs (or the declared build script) and anything under build/.
+    fn is_build_script(&self, p: &Path) -> bool {
+        self.build_script.as_deref() == Some(p) || p.starts_with(self.dir.join("build"))
+    }
 }
 
 /// A dependency as written in a manifest.
@@ -118,6 +123,27 @@ impl FileAnalysis {
             .filter(|&l| self.lines[l - 1] == LineClass::Code)
             .count()
     }
+
+    /// Code lines of a fn, minus items nested in its body (counted on
+    /// their own).
+    pub fn own_lines(&self, func: &FnFact) -> usize {
+        // Nested items arrive in source order: skip each range in one sweep.
+        let mut nested = func.nested.iter().peekable();
+        let mut count = 0;
+        let mut l = func.line;
+        let end = func.end_line.min(self.lines.len());
+        while l <= end {
+            while nested.next_if(|&&(_, e)| e < l).is_some() {}
+            match nested.peek() {
+                Some(&&(s, e)) if s <= l => l = e + 1,
+                _ => {
+                    count += self.code_lines(l, l);
+                    l += 1;
+                }
+            }
+        }
+        count
+    }
 }
 
 pub struct Scan {
@@ -135,6 +161,15 @@ pub struct Scan {
 impl Scan {
     pub fn crate_name(&self, f: &FileAnalysis) -> &str {
         f.crate_idx.map_or("", |i| &self.crates[i].name)
+    }
+
+    /// Build scripts and examples: support code, where `unwrap` is
+    /// idiomatic, not the product.
+    pub fn is_support(&self, f: &FileAnalysis) -> bool {
+        f.crate_idx.is_some_and(|i| {
+            let c = &self.crates[i];
+            c.is_build_script(&f.path) || f.path.starts_with(c.dir.join("examples"))
+        })
     }
 
     /// A path for people: relative to the working directory (`../x` for
@@ -226,10 +261,7 @@ pub fn scan(focus: &[PathBuf], opts: &ScanOptions) -> Result<Scan, String> {
     let analysed: Vec<_> = rs_files
         .par_iter()
         .map(|p| {
-            let build_script = crate_of(p).is_some_and(|c| {
-                let c = &crates[c];
-                c.build_script.as_deref() == Some(p) || p.starts_with(c.dir.join("build"))
-            });
+            let build_script = crate_of(p).is_some_and(|c| crates[c].is_build_script(p));
             let ctx = Ctx {
                 test_features: &test_features,
                 build_script,
