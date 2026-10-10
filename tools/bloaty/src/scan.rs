@@ -174,6 +174,17 @@ pub fn scan(focus: &[PathBuf], opts: &ScanOptions) -> Result<Scan, String> {
                 .map_err(|e| format!("{}: {e}", p.display()))
         })
         .collect::<Result<_, _>>()?;
+    // Outside any project the "workspace" is whatever lies around PATH
+    // (`/tmp`, `~`): refuse rather than scan it all.
+    if let Some(p) = focus.iter().find(|p| {
+        !p.ancestors()
+            .any(|d| d.join("Cargo.toml").is_file() || d.join(".git").exists())
+    }) {
+        return Err(format!(
+            "{}: not inside a cargo project or git repository",
+            p.display()
+        ));
+    }
     let roots: Vec<PathBuf> = focus.iter().map(|p| workspace_root(p, true)).collect();
     let mut root = roots[0].clone();
     if let Some(other) = roots.iter().find(|r| **r != root) {
@@ -1224,6 +1235,16 @@ mod tests {
             p("../b/src/x.rs")
         );
         assert_eq!(relative_to(p("/r/x.rs"), p("/r/a/b")), p("../../x.rs"));
+    }
+
+    #[test]
+    fn refuses_paths_outside_any_project() {
+        let dir = std::env::temp_dir().join(format!("bloaty-noproject-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("a")).unwrap();
+        std::fs::write(dir.join("a/x.rs"), "fn f() {}\n").unwrap();
+        let result = scan(std::slice::from_ref(&dir), &ScanOptions::default());
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(result.is_err());
     }
 
     #[test]

@@ -84,6 +84,7 @@ require("mtreesitter")
 require("maerial")
 require("mneotree") -- neo-tree file explorer (reveal on open, no follow)
 require("mdiffview") -- diffview.nvim setup, muted diff colours, review keymaps
+require("mbloaty").setup() -- bloaty line counts / bloat markers in neo-tree (<leader>bt)
 
 vim.diagnostic.config({  -- https://neovim.io/doc/user/diagnostic.html
     virtual_text = true,

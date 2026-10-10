@@ -41,6 +41,57 @@ require("neo-tree").setup({
     },
   },
   filesystem = {
+    -- bloaty: dim impl line counts per file/dir, `•` where it found bloat
+    -- (lua/mbloaty.lua). The renderers are neo-tree v3's defaults plus it;
+    -- it gives way first (zindex 5) when names need the width.
+    components = {
+      bloaty = function(config, node, state)
+        return require("mbloaty").component(config, node, state)
+      end,
+    },
+    renderers = {
+      directory = {
+        { "indent" },
+        { "icon" },
+        { "current_filter" },
+        {
+          "container",
+          content = {
+            { "name", zindex = 10 },
+            { "symlink_target", zindex = 10, highlight = "NeoTreeSymbolicLinkTarget" },
+            { "clipboard", zindex = 10 },
+            { "diagnostics", errors_only = true, zindex = 20, align = "right", hide_when_expanded = true },
+            { "git_status", zindex = 10, align = "right", hide_when_expanded = true },
+            { "bloaty", zindex = 5, align = "right" },
+            { "file_size", zindex = 10, align = "right" },
+            { "type", zindex = 10, align = "right" },
+            { "last_modified", zindex = 10, align = "right" },
+            { "created", zindex = 10, align = "right" },
+          },
+        },
+      },
+      file = {
+        { "indent" },
+        { "icon" },
+        {
+          "container",
+          content = {
+            { "name", zindex = 10 },
+            { "symlink_target", zindex = 10, highlight = "NeoTreeSymbolicLinkTarget" },
+            { "clipboard", zindex = 10 },
+            { "bufnr", zindex = 10 },
+            { "modified", zindex = 20, align = "right" },
+            { "diagnostics", zindex = 20, align = "right" },
+            { "git_status", zindex = 10, align = "right" },
+            { "bloaty", zindex = 5, align = "right" },
+            { "file_size", zindex = 10, align = "right" },
+            { "type", zindex = 10, align = "right" },
+            { "last_modified", zindex = 10, align = "right" },
+            { "created", zindex = 10, align = "right" },
+          },
+        },
+      },
+    },
     follow_current_file = { enabled = false },
     use_libuv_file_watcher = true,  -- refresh on disk changes without polling
     filtered_items = {
