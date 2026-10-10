@@ -15,6 +15,9 @@ impl Fixture {
         let n = NEXT.fetch_add(1, Ordering::Relaxed);
         let root = std::env::temp_dir().join(format!("bloaty-test-{}-{n}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
+        // Its own repository, so a git checkout around the temp dir can't
+        // change the workspace root.
+        std::fs::create_dir_all(root.join(".git")).unwrap();
         for (rel, contents) in files {
             let path = root.join(rel);
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();

@@ -32,6 +32,9 @@ pub struct Counts {
     /// Module path within the crate, when grouping by module.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub module: Option<String>,
+    /// Absolute, when grouping by file (`name` is for people).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
     pub files: usize,
     /// Non-test code lines.
     #[serde(rename = "impl")]
@@ -120,7 +123,7 @@ pub fn summary(
         let krate = scan.crate_name(f).to_string();
         let (key, module) = match by {
             GroupBy::Crate => (krate.clone(), None),
-            GroupBy::File => (f.rel.clone(), None),
+            GroupBy::File => (scan.display_path(&f.path), None),
             GroupBy::Module => {
                 let module = module_key(f, scan, depth);
                 let key = if crates.len() > 1 {
@@ -139,6 +142,7 @@ pub fn summary(
                 name: key,
                 krate: Some(krate),
                 module,
+                path: (by == GroupBy::File).then(|| f.path.display().to_string()),
                 ..Default::default()
             })
             .add(&c);
@@ -234,7 +238,7 @@ pub fn render(s: &Summary) -> String {
     if !s.test_features.is_empty() {
         let _ = writeln!(
             out,
-            "\ncounted as test: cfg(test) and features {}",
+            "\ncounted as test: cfg(test), loom, fuzzing and features {}",
             s.test_features.join(", ")
         );
     }
@@ -271,5 +275,11 @@ mod tests {
         );
         let s = summary(&fx.scan(), None, 2, SortBy::Impl, 1);
         assert_eq!((s.groups.len(), s.hidden), (1, 2));
+        // File groups carry an absolute path for tools.
+        let s = summary(&fx.scan(), Some(GroupBy::File), 2, SortBy::Impl, 0);
+        for g in &s.groups {
+            let path = std::path::Path::new(g.path.as_deref().unwrap());
+            assert!(path.is_absolute() && path.is_file(), "{path:?}");
+        }
     }
 }

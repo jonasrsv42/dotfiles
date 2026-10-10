@@ -130,6 +130,30 @@ then
   exit 1
 fi
 
+# bloaty (tools/bloaty): where code lives and where it's bloated in Rust projects.
+# Built from this repo; needs Rust >= 1.88. Optional, so a missing cargo only warns.
+# (Google's unrelated "Bloaty McBloatface" also installs a `bloaty`: check it's ours.)
+if ! command -v cargo
+then
+  echo "${fg_yellow}cargo not found - skipping bloaty. To get it:${reset}"
+  echo "       curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
+elif bloaty --version 2>/dev/null | grep -qE '^bloaty [0-9]'
+then
+  echo "${fg_magenta} bloaty already installed - skipping... (update: cargo install --locked --path ~/dotfiles/tools/bloaty) ${reset}"
+else
+  echo "${fg_green} Installing bloaty from $HOME/dotfiles/tools/bloaty ${reset}"
+  cargo install --locked --path "$HOME/dotfiles/tools/bloaty" || echo "${fg_red}bloaty install failed${reset}"
+fi
+if command -v cargo >/dev/null && ! bloaty --version 2>/dev/null | grep -qE '^bloaty [0-9]'
+then
+  if command -v bloaty >/dev/null
+  then
+    echo "${fg_yellow}another bloaty comes first on PATH ($(command -v bloaty)); put ~/.cargo/bin before it${reset}"
+  else
+    echo "${fg_yellow}bloaty is not on PATH: add ~/.cargo/bin to PATH${reset}"
+  fi
+fi
+
 # Python LSP tooling: basedpyright + ruff are installed as standalone, venv-agnostic
 # tools via `uv` (they analyze each project's own venv). uv also builds the python3
 # provider host venv below.

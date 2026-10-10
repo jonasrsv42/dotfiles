@@ -2,6 +2,8 @@
 name = "bloaty"
 version = "0.1.0"
 edition = "2024"
+# let-chains
+rust-version = "1.88"
 description = "Where does the code in a Rust project live, and where is it bloated?"
 
 [dependencies]
