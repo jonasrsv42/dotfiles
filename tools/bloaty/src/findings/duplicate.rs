@@ -15,7 +15,7 @@ mod policy;
 
 pub use policy::{Rule, Tier};
 
-use super::{Criterion, Cx, Finding, Kind, category};
+use super::{Criterion, Cx, Finding, Kind, Reason, category};
 use crate::names::{Loc, short_name};
 use crate::scan::FileAnalysis;
 use crate::visit::sig::{Part, Signature};
@@ -136,6 +136,12 @@ pub(super) fn duplicates(cx: &mut Cx, out: &mut Vec<Finding>) {
         // Focus scopes the report: groups outside the requested paths are
         // neither reported nor counted.
         if !ms.iter().any(|m| m.file.in_focus) {
+            continue;
+        }
+        // A copy in a file a macro may declare is test or not by path only:
+        // the group's tier and category would rest on that.
+        if ms.iter().any(|m| m.file.macro_declared) {
+            cx.exclude(Kind::Duplicate, Reason::NamedInMacro);
             continue;
         }
         // A duplicate by text size alone (signatures counted, any body).

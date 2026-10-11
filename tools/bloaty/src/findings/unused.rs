@@ -1,7 +1,7 @@
 //! `unused`: fns and types nothing outside themselves mentions (name-based),
 //! types with the impl blocks that go with them.
 
-use super::{Category, Cx, Finding, Kind};
+use super::{Category, Cx, Finding, Kind, Reason};
 use crate::names::Loc;
 use crate::scan::FileAnalysis;
 use crate::visit::{FnKind, ImplKind, ItemKind, Vis};
@@ -63,6 +63,7 @@ pub(super) fn unused(cx: &mut Cx, out: &mut Vec<Finding>) {
                 at: Loc::of_fn(cx.scan, f, func),
                 self_refs: func.self_refs,
                 test_self_refs: 0,
+                self_refs_by_name: false,
                 vis: func.vis,
                 lines: f.own_lines(func),
                 impls: None,
@@ -90,6 +91,7 @@ pub(super) fn unused(cx: &mut Cx, out: &mut Vec<Finding>) {
                 ),
                 self_refs: self_refs(&cx.type_self_refs),
                 test_self_refs: self_refs(&cx.test_type_self_refs),
+                self_refs_by_name: true,
                 vis: item.vis,
                 lines: f.code_lines(item.line, item.end_line),
                 impls,
@@ -108,6 +110,9 @@ struct Candidate<'a> {
     /// not counted as uses.
     self_refs: u32,
     test_self_refs: u32,
+    /// `self_refs` are every mention inside any definition or impl of the
+    /// name (types), not inside this item only (fns).
+    self_refs_by_name: bool,
     vis: Vis,
     lines: usize,
     /// For types: their impl blocks with code lines.
@@ -115,12 +120,29 @@ struct Candidate<'a> {
 }
 
 fn push_unused(cx: &mut Cx, out: &mut Vec<Finding>, f: &FileAnalysis, c: Candidate) {
-    let (r, t) = cx.refs(c.ident);
+    let (raw_r, raw_t) = cx.refs(c.ident);
     let (r, t) = (
-        r.saturating_sub(c.self_refs),
-        t.saturating_sub(c.test_self_refs),
+        raw_r.saturating_sub(c.self_refs),
+        raw_t.saturating_sub(c.test_self_refs),
     );
-    if r > 0 || cx.skip_pub(Kind::Unused, f, c.vis) {
+    if r > 0 {
+        return;
+    }
+    // A name mentioned nowhere (or, for a fn, only in its own body) is
+    // unused whatever shares it. A type's own mentions are counted by
+    // name (`State::A` inside any `State`'s definition or impls): with
+    // other definitions of the name, which type a mention means takes
+    // name resolution.
+    if c.self_refs_by_name && raw_r > 0 && cx.ambiguous(c.ident) {
+        cx.exclude(Kind::Unused, Reason::SameName);
+        return;
+    }
+    // Test or not is by path only in a file a macro may declare.
+    if f.macro_declared {
+        cx.exclude(Kind::Unused, Reason::NamedInMacro);
+        return;
+    }
+    if cx.skip_pub(Kind::Unused, f, c.vis) {
         return;
     }
     let uncertain = f.crate_idx.is_some_and(|i| cx.uncertain.contains(&i));
@@ -151,7 +173,7 @@ fn push_unused(cx: &mut Cx, out: &mut Vec<Finding>, f: &FileAnalysis, c: Candida
         detail.push_str(if named {
             "; the file may not be compiled (bloaty couldn't follow its `mod`)"
         } else {
-            "; the file isn't compiled (no `mod` declares it)"
+            "; the file may not be compiled (no `mod` outside macros declares it)"
         });
     }
     let lines = c.lines + impl_lines;
@@ -413,7 +435,12 @@ mod tests {
     fn files_no_mod_declares_are_flagged() {
         let all = unused_in("fn main() {}\n", &[("src/stray.rs", "fn probe() {}\n")]);
         let f = all.all.iter().find(|f| f.at.name == "probe").unwrap();
-        assert!(f.detail.contains("isn't compiled"), "{}", f.detail);
+        assert!(
+            f.detail.contains("no `mod` outside macros declares it"),
+            "{}",
+            f.detail
+        );
+        assert!(!f.uncertain);
     }
 
     #[test]
@@ -472,17 +499,56 @@ mod tests {
     }
 
     #[test]
-    fn cfg_if_modules_are_compiled() {
+    fn modules_in_opaque_macros_may_be_compiled() {
+        // `cfg_if!` isn't read: its files are orphans whose test-or-not is
+        // by path only (`testutil` was test code), so no claim rests on it;
+        // the crate may hide modules. `stray` no macro names: claimed.
         let all = unused_in(
-            "cfg_if::cfg_if! {\n    if #[cfg(unix)] {\n        mod unix;\n    } else {\n        mod windows;\n    }\n}\nfn main() {}\n",
+            "cfg_if::cfg_if! {\n    if #[cfg(unix)] {\n        mod unix;\n    }\n    if #[cfg(test)] {\n        mod testutil;\n    }\n}\nfn main() {}\n",
             &[
                 ("src/unix.rs", "fn stray_u() {}\n"),
-                ("src/windows.rs", "fn stray_w() {}\n"),
+                ("src/testutil.rs", "pub fn helper() -> u8 { 1 }\n"),
+                ("src/stray.rs", "fn probe() {}\n"),
             ],
         );
-        for f in all.all.iter().filter(|f| f.kind == Kind::Unused) {
-            assert!(!f.detail.contains("compiled"), "{}", f.detail);
-        }
+        assert_eq!(names(&all, Kind::Unused), vec!["probe"]);
+        assert!(all.all[0].uncertain);
+        let why = &all.unclaimed[&Kind::Unused];
+        assert_eq!(why.get(&Reason::NamedInMacro), Some(&2));
+        // A macro_rules template with `mod` makes the crate uncertain too.
+        let all = unused_in(
+            "macro_rules! mods { ($($m:ident),*) => { $(mod $m;)* }; }\nmods!(alpha);\nfn main() {}\nfn dead() {}\n",
+            &[],
+        );
+        assert!(all.all.iter().all(|f| f.uncertain));
+    }
+
+    #[test]
+    fn shared_names_unused_only_when_mentioned_nowhere() {
+        // `State` is only mentioned inside a `State` impl, but which
+        // `State` that mention means takes name resolution (here: b's,
+        // which is used). The `twin`s are mentioned nowhere, so neither is
+        // used; each `walk` keeps the other alive, as before.
+        let all = unused_in(
+            "mod a;\nmod b;\nfn main() {}\n",
+            &[
+                (
+                    "src/a.rs",
+                    "pub(crate) struct State;\nimpl State {\n    pub(crate) fn to_b(&self) -> crate::b::State { crate::b::State }\n}\nfn walk(n: u8) { if n > 0 { walk(n - 1) } }\nfn twin() {}\n",
+                ),
+                (
+                    "src/b.rs",
+                    "pub(crate) struct State;\nfn walk(n: u8) { if n > 0 { walk(n - 1) } }\nfn twin() {}\nfn solo(n: u8) { if n > 0 { solo(n - 1) } }\n",
+                ),
+            ],
+        );
+        let mut unused = names(&all, Kind::Unused);
+        unused.sort();
+        assert_eq!(unused, vec!["State::to_b", "solo", "twin", "twin"]);
+        assert_eq!(
+            all.unclaimed[&Kind::Unused].get(&Reason::SameName),
+            Some(&2)
+        );
     }
 
     #[test]

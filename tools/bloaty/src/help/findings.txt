@@ -37,8 +37,12 @@ Kinds, in the order worth working through:
                      differ only in literals are data, never duplicates;
                      whether copies can call each other (visibility,
                      re-exports, types) isn't checked.
-  unused             fns/types/traits nothing references, or only tests
-                     (incl. doctests) do. Name-based, so verify: after
+  unused             fns/types/traits whose name is mentioned nowhere
+                     outside tests (incl. doctests), or for a fn only in
+                     its own body. Mentions: identifiers in code,
+                     attribute arguments and their strings, any macro's
+                     tokens, include!d files, build-script strings; not
+                     comments or other strings. Name-based, so verify: after
                      removing, run `cargo check --workspace --all-targets
                      --all-features` (or the project's usual feature sets)
                      and `cargo test --doc`, then re-run bloaty (removals can
@@ -46,16 +50,20 @@ Kinds, in the order worth working through:
                      counts as a use. `uncertain: true` marks crates with
                      code bloaty can't see.
   single-impl-trait  traits with at most one impl (derives and impls in other
-                     workspace crates count; blanket/macro impls and extension
-                     traits on foreign types are exempt). Fine as a mocking or
-                     plugin boundary; otherwise inline.
+                     workspace crates count; traits with blanket impls and
+                     extension traits on foreign types are exempt; no claim
+                     for a trait named in a macro other than the
+                     well-known expression macros, or whose name another
+                     workspace trait shares). Fine as a mocking or plugin
+                     boundary; otherwise inline.
   long-fn            more than --long-fn own code lines (nested items excluded).
   test-heavy         files whose inline tests are >3x their code (and >= 200):
                      look for repeated setup to share and cases to merge
                      into table-driven tests.
   pass-through       (only with --kind pass-through) private-ish fns whose
                      body is one call passing their inputs to another
-                     workspace fn. Mostly a judgement call.
+                     workspace fn (no claim when several workspace fns
+                     share the callee's name). Mostly a judgement call.
 
 Within a kind, impl code ranks before test code and private before pub;
 duplicate notes come last. `category` says impl or test (a duplicate is
@@ -81,3 +89,13 @@ The JSON report also has `root`, `thresholds`, `test_features`, `totals` and
 `duplicate_notes` {total, shown}), and per criterion how many groups of
 copies with equal text weren't duplicates after all (`excluded_duplicates`:
 `substance`).
+
+Limits: bloaty is syntactic. Names aren't resolved (same-named items count
+as the same) and macros aren't expanded (only format!/vec!/assert!-like
+std and log/tracing macros are read as expressions; other macros' words
+are just mentions). Where a claim would need either, none is made:
+`unclaimed` {kind: {reason: n}} counts them, reason `same_name` (another
+definition shares the name the claim matches by) or `named_in_macro` (a
+macro may implement the trait, or may declare the file: such files are
+test or not by path only). Cfgs written through macros (cfg_rt!) aren't
+seen, so copies under them read as plain duplicates. rust-analyzer is the place for precision.

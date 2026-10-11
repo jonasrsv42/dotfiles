@@ -269,7 +269,7 @@ impl Input<'_> {
 /// every other scanned file, not just the requested ones: a file's level
 /// doesn't depend on the PATH it was asked about. Whole-test files, build
 /// scripts and examples, files under `MIN_IMPL_LINES` and files without
-/// measured fns get none.
+/// measured fns get none; files a macro may declare are ranked but get none.
 pub fn for_scan(scan: &Scan) -> Vec<Option<Smell>> {
     let mut idx = Vec::new();
     let mut metrics = Vec::new();
@@ -309,7 +309,10 @@ pub fn for_scan(scan: &Scan) -> Vec<Option<Smell>> {
         .into_iter()
         .zip(score_excusing(&raw, &effective, &paths))
     {
-        out[i] = Some(s);
+        // Ranked with the rest (taking it out would shift everyone else's
+        // percentiles and caps), but a file a macro may declare is test or
+        // not by path only: no level of its own.
+        out[i] = (!scan.files[i].macro_declared).then_some(s);
     }
     out
 }

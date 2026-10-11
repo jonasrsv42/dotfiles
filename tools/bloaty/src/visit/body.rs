@@ -9,13 +9,31 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use syn::{Block, Expr, FnArg, Pat, Stmt};
 
+/// The call a forwarding body makes, as found in the syntax tree.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Forward {
+    /// As written, for display: `helper`, `crate::m::f`, `self.inner.go`.
+    pub text: String,
+    /// The called fn's name: the path's last segment or the method.
+    pub name: String,
+    pub callee: Callee,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum Callee {
+    /// `f(..)`, `a::b::f(..)`: the path's segments.
+    Path(Vec<String>),
+    /// `x.f(..)`: whether `x` is `self` itself (not a field of it).
+    Method { on_self: bool },
+}
+
 /// If the block is just one call that passes the fn's own inputs along
 /// (params, `self`, their fields, references and trivial conversions of
-/// those), returns the callee. `Ok(..)`, `Some(..)`, `?`, `.await` and
+/// those), returns the call. `Ok(..)`, `Some(..)`, `?`, `.await` and
 /// `.into()` around it are looked through. Not forwarding: fns without
 /// inputs (`Duration::from_secs(30)` binds a constant), constructors
 /// (`Id(raw)`), and turbofish calls (`work_loop::<T>(..)` specialises).
-pub(super) fn forward_target(sig: &syn::Signature, block: &Block) -> Option<String> {
+pub(super) fn forward_target(sig: &syn::Signature, block: &Block) -> Option<Forward> {
     let params = inputs(sig);
     if params.is_empty() {
         return None;
@@ -26,17 +44,32 @@ pub(super) fn forward_target(sig: &syn::Signature, block: &Block) -> Option<Stri
     let rooted = |e: &Expr| is_rooted(e, &params);
     match peel(expr) {
         Expr::Call(c) => {
+            // `<T as Trait>::f(..)`: which fn that is takes types.
             let Expr::Path(p) = &*c.func else { return None };
+            if p.qself.is_some() {
+                return None;
+            }
             let last = p.path.segments.last()?;
             let constructor = last.ident.to_string().starts_with(char::is_uppercase);
             let turbofish = p.path.segments.iter().any(|s| !s.arguments.is_empty());
-            (!constructor && !turbofish && !c.args.is_empty() && c.args.iter().all(rooted))
-                .then(|| compact(&c.func))
+            (!constructor && !turbofish && !c.args.is_empty() && c.args.iter().all(rooted)).then(
+                || Forward {
+                    text: compact(&c.func),
+                    name: last.ident.to_string(),
+                    callee: Callee::Path(super::syntax::path_segments(&p.path)),
+                },
+            )
         }
-        Expr::MethodCall(m) => {
-            (m.turbofish.is_none() && rooted(&m.receiver) && m.args.iter().all(rooted))
-                .then(|| format!("{}.{}", compact(&m.receiver), m.method))
-        }
+        Expr::MethodCall(m) => (m.turbofish.is_none()
+            && rooted(&m.receiver)
+            && m.args.iter().all(rooted))
+        .then(|| Forward {
+            text: format!("{}.{}", compact(&m.receiver), m.method),
+            name: m.method.to_string(),
+            callee: Callee::Method {
+                on_self: matches!(&*m.receiver, Expr::Path(p) if p.path.is_ident("self")),
+            },
+        }),
         _ => None,
     }
 }
@@ -285,6 +318,7 @@ mod tests {
             fn make(a: u32) -> Foo { Foo::new(a) }
             fn run(a: u32) { work_loop::<T>(a) }
             fn timeout() -> Duration { Duration::from_secs(30) }
+            fn qualified(x: u8) -> u8 { <S as Helper>::help(x) }
             pub extern "C" fn ffi(x: u32) -> u32 { helper(x) }
             #[cfg(unix)]
             fn stub(x: u32) -> u32 { helper(x) }
@@ -292,7 +326,7 @@ mod tests {
             impl S { fn exported(&self, k: &str) -> u32 { self.inner.get(k) } }
             "#,
         );
-        let fwd = |n: &str| fact(&f, n).forwards_to.clone();
+        let fwd = |n: &str| fact(&f, n).forwards_to.clone().map(|f| f.text);
         assert_eq!(fwd("S::get").as_deref(), Some("self.inner.get"));
         assert_eq!(fwd("S::load").as_deref(), Some("self.inner.load"));
         assert_eq!(fwd("make").as_deref(), Some("Foo::new"));
@@ -306,6 +340,7 @@ mod tests {
             "<S as Display>::fmt",
             "run",
             "timeout",
+            "qualified",
             "ffi",
             "stub",
             "S::exported",

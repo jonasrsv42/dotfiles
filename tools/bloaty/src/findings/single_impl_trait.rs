@@ -1,7 +1,7 @@
 //! `single_impl_trait`: workspace traits with at most one impl, trait paths
 //! resolved through imports.
 
-use super::{Category, Cx, Finding, Kind};
+use super::{Category, Cx, Finding, Kind, Reason};
 use crate::names::Loc;
 use crate::scan::{FileAnalysis, Scan};
 use crate::visit::{ImplKind, ItemKind, Vis};
@@ -45,7 +45,10 @@ impl<'a> Resolver<'a> {
         let mut trait_crates: HashMap<&str, Vec<usize>> = HashMap::new();
         for f in &scan.files {
             let Some(c) = f.crate_idx else { continue };
-            modules[c].extend(f.facts.modules.iter().map(String::as_str));
+            // A word in an opaque macro may be a module it declares
+            // (`cfg_if! { .. mod sys; .. }`): paths through it stay ours.
+            let declared = f.facts.modules.iter().chain(&f.facts.macro_words);
+            modules[c].extend(declared.map(String::as_str));
             for t in f.facts.items.iter().filter(|i| i.kind == ItemKind::Trait) {
                 if traits.insert((c, t.name.as_str())) {
                     trait_crates.entry(t.name.as_str()).or_default().push(c);
@@ -93,7 +96,7 @@ impl<'a> Resolver<'a> {
 }
 
 /// Every workspace trait's impls (with the impl's bare self type name), and
-/// the traits exempt from the check (blanket or macro-generated impls).
+/// the traits exempt from the check (blanket impls).
 struct TraitImpls<'a> {
     impls: HashMap<(usize, String), Vec<(Loc, &'a str)>>,
     exempt: HashSet<(usize, String)>,
@@ -131,12 +134,6 @@ fn collect_trait_impls<'a>(cx: &Cx<'a>, resolver: &Resolver) -> TraitImpls<'a> {
                 ImplKind::Forwarding | ImplKind::Inherent => {}
             }
         }
-        // A macro that implements a trait is usually invoked many times.
-        for path in &f.facts.macro_impls {
-            if let Some(key) = resolver.resolve(f, path, false) {
-                t.exempt.insert(key);
-            }
-        }
     }
     t
 }
@@ -152,6 +149,12 @@ pub(super) fn single_impl_traits(cx: &mut Cx, out: &mut Vec<Finding>) {
             .extend(f.facts.type_names.iter().map(String::as_str));
     }
 
+    let mut trait_defs: HashMap<&str, u32> = HashMap::new();
+    for f in &cx.scan.files {
+        for t in f.facts.items.iter().filter(|t| t.kind == ItemKind::Trait) {
+            *trait_defs.entry(t.name.as_str()).or_default() += 1;
+        }
+    }
     let traits: Vec<_> = cx
         .focus()
         .filter(|f| !f.whole_test)
@@ -181,6 +184,19 @@ pub(super) fn single_impl_traits(cx: &mut Cx, out: &mut Vec<Finding>) {
             [(one, _)] => format!("only impl: {}", one.name),
             _ => continue,
         };
+        // Impls match traits by name: with two traits of one name, which
+        // impl is whose takes name resolution. A macro naming the trait
+        // may implement it any number of times.
+        let same_name = trait_defs.get(t.name.as_str()).copied().unwrap_or(0) > 1;
+        if same_name || cx.macro_words.contains(t.name.as_str()) {
+            let why = if same_name {
+                Reason::SameName
+            } else {
+                Reason::NamedInMacro
+            };
+            cx.exclude(Kind::SingleImplTrait, why);
+            continue;
+        }
         if cx.skip_pub(Kind::SingleImplTrait, f, t.vis) {
             continue;
         }
@@ -234,5 +250,17 @@ mod tests {
         let mut single = names(&run(&fx, true), Kind::SingleImplTrait);
         single.sort();
         assert_eq!(single, vec!["Debug", "Display", "Lonely"]);
+    }
+
+    #[test]
+    fn shared_names_and_macro_named_traits_make_no_claim() {
+        let all = unused_in(
+            "mod a {\n    pub trait Codec {}\n}\nmod b {\n    pub trait Codec {}\n}\ntrait Gen {}\ntrait Solo {}\nstruct X;\nimpl a::Codec for X {}\nimpl Solo for X {}\nmacro_rules! g { ($t:ty) => { impl Gen for $t {} }; }\ng!(X);\nfn main() {}\n",
+            &[],
+        );
+        assert_eq!(names(&all, Kind::SingleImplTrait), vec!["Solo"]);
+        let why = &all.unclaimed[&Kind::SingleImplTrait];
+        assert_eq!(why.get(&Reason::SameName), Some(&2));
+        assert_eq!(why.get(&Reason::NamedInMacro), Some(&1));
     }
 }

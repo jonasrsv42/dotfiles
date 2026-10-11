@@ -15,9 +15,14 @@ count toward their fn; fns nested in a body are measured on their own.
               unreachable!, todo!, unimplemented!, assert!, assert_eq!,
               assert_ne! (debug_assert* compile out, so don't count)
   clones      .clone() calls
-Macro arguments that parse as comma-separated expressions (format!, vec!,
-assert!, ...) count like code; others (tokio::select!, items in a body) are
-only scanned for panics and clones.
+Macros are opaque except well-known expression macros (std's format!,
+vec!, assert*!, debug_assert*!, print*!, write*!, panic!, unreachable!,
+todo!, unimplemented!, matches!, dbg!, pin!; log/tracing's trace!..error!,
+event!; by name), whose arguments count like code when they parse as
+comma-separated expressions. In any other macro (tokio::select!, ready!,
+custom ones, items in a body) only the panic calls and clones written
+there count, never complexity or nesting. Panics are explicit calls by
+name: a custom unwrap() counts; indexing, overflow, division don't.
 
 Text: the --top most complex fns, as file:line and name. JSON: `root` and
 `functions`, every fn by file and line (--top doesn't apply), each with

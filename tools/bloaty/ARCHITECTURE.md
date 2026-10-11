@@ -9,7 +9,11 @@ root. User-facing behaviour is documented in `bloaty <cmd> --help`
 (src/help/*.txt); this file is for people and agents changing the code.
 
 Principle: only measure what syn shows reliably. No type information, no
-guesses at design quality, no weights.
+guesses at design quality, no weights. bloaty is purely syntactic and
+snappy: it may miss things, but never claims what needs semantic analysis
+(macro expansion, name resolution, types). If a feature needs types or
+name resolution, it's rust-analyzer's job (precision on demand), not
+bloaty's. See Limits.
 
 ## Pipeline
 
@@ -34,12 +38,15 @@ Rust (src/):
 - `visit.rs`: one `syn::Visit` per file → `FileFacts` (test ranges, mod
   decls, imports, `FnFact`s, items, impls, name mentions).
   - `visit/cfg.rs`: which attributes make code test-only / checked-test.
-  - `visit/body.rs`: forwarding detection (to other fns, to `self`), a
+  - `visit/body.rs`: forwarding detection (to other fns as a structured
+    `Forward`, to `self`), a
     body's logic count, body hashes (exact/shape/names).
   - `visit/sig.rs`: a fn's `Signature` as text, name left out (generics,
     receiver, parameter types, return type, qualifiers, the impl's Self
     type and trait); `differs` names the parts copies differ in.
-  - `visit/macros.rs`: `mod x;` and trait impls seen only as macro tokens.
+  - `visit/macros.rs`: `EXPRESSION_MACROS`, the one allow-list of
+    macros whose arguments are read as expressions; every other macro is
+    opaque (its words are only mentions, `macro_words`).
   - `visit/syntax.rs`: paths, types and words as text.
 - `fnmetrics.rs`: second, small walk per non-test fn body: cyclomatic
   complexity, nesting, params, panic sites, clones (`FnMetrics`).
@@ -120,7 +127,9 @@ Neovim (lua/mbloaty/):
   cc; only on the fn, only below the ceiling (2 × bar: 80 lines, cc 20).
 - **Findings kinds.** duplicate, unused, single_impl_trait, long_fn,
   test_heavy, pass_through (opt-in). Name-based, hints not proof; `pub`
-  items of publishable libraries hidden unless `--include-pub`.
+  items of publishable libraries hidden unless `--include-pub`. Claims
+  that would need name resolution or macro expansion aren't made:
+  `unclaimed` {kind: {reason: n}} counts them (`Cx::exclude`).
 - **Duplicates: exact claims, facts, two tiers.** A duplicate finding
   claims the same code more than once: an identical body (or, for >= 15
   lines, the same shape unless only literals differ) and the same written
@@ -144,8 +153,59 @@ Neovim (lua/mbloaty/):
 
 ## Limits
 
-What each claim means syntactically; rust-analyzer is the place for more.
+What each claim means syntactically. Rule: if a feature needs types or
+name resolution, it's rust-analyzer's job (precision on demand), not
+bloaty's; when a claim would need them, bloaty makes none (counted in
+`unclaimed`, never silently dropped).
 
+- **Names aren't resolved.** Same-named items count as the same: a
+  mention of `parse` is a mention of every `parse`. Where a claim would
+  need to know which one is meant, it isn't made (`unclaimed`
+  `same_name`): an unused type whose only mentions sit inside some
+  same-named type's definition or impls; a trait whose name another
+  workspace trait shares (single-impl); a pass-through to a fn name
+  several workspace fns share. Imports are read as text (`use a::B as
+  C`), not resolved.
+- **Macros are opaque**, except `visit::macros::EXPRESSION_MACROS`
+  (std's `format!`, `vec!`, `assert*!`, `debug_assert*!`, `print*!`,
+  `write*!`, `panic!`/`unreachable!`/`todo!`/`unimplemented!`,
+  `matches!`, `dbg!`, `pin!`; log/tracing's `trace!`..`error!`, `event!`), matched
+  by last path segment, whose arguments are read as expressions when they
+  parse (otherwise that invocation is opaque too). Any other macro's tokens: every identifier counts as a mention
+  (so `unused` never flags what a macro names), a trait named in them makes
+  no single-impl claim (`named_in_macro`), and in fn bodies the panic
+  calls and clones written there are counted (text the user wrote) but no
+  complexity or nesting. An item-position macro whose whole body parses as
+  Rust items (tokio's `cfg_rt! { pub mod runtime; }`) is read as those
+  items, as written; what it defines is exempt from unused. Nothing else
+  is guessed: `mod x;` inside `cfg_if!` or `macro_rules!` templates and
+  trait impls in `macro_rules!` bodies aren't seen. Such files are
+  orphans: still counted, their impl/test split by path only, and their
+  crate is `uncertain`; an orphan whose stem a macro of its crate names
+  (`macro_declared`) gets no claim resting on that split (unused,
+  long-fn, duplicate groups with a copy there: `unclaimed`
+  `named_in_macro`) and no smell level. Cfgs written through macros
+  (tokio's `cfg_rt!`/`cfg_not_rt!`) aren't recorded, so copies under them
+  read as identical duplicates without cfgs.
+- **unused** = the name is mentioned nowhere outside test code (or, for a
+  fn, only in its own body). Mentions: identifiers anywhere in code,
+  attribute arguments (incl. words in their strings: `#[serde(default =
+  "f")]`), macro tokens, doctests (as test mentions), files pulled in by
+  `include!`, and every word of a build script's string literals. Not
+  mentions: comments, plain doc text, other string literals (in a file
+  syn can't parse every word counts). Mentions in definitions and plain
+  `use` imports don't count.
+- **panics** = explicit calls by name: `.unwrap()`, `.expect(x)` (not
+  `.expect(x)?`), `panic!`, `unreachable!`, `todo!`, `unimplemented!`,
+  `assert!`, `assert_eq!`, `assert_ne!`; a custom `unwrap` method counts,
+  indexing, overflow, division and panics inside callees don't.
+- **cfg / test classification** approximates the build: cfgs are read as
+  text, not evaluated (`cfg(unix)` vs `cfg(target_family = "unix")`
+  differ), test-only features by name, files by the `mod` tree bloaty
+  can follow.
+- **Signatures and types** compare as written text: lifetimes ignored
+  (outside `for<..>`), aliases differ from their types, `Self` from the
+  concrete type.
 - Duplicates: names aren't resolved: same-named items in different files
   or crates (consts, helpers, imported types) count as the same, so equal
   text can be different code. Signatures and cfgs compare as normalized
@@ -278,6 +338,11 @@ drove it, step by step. Distilled rationale:
   nothing hides silently.
 - `assert!` family counts as panics (they panic in release); `debug_assert!`
   doesn't.
+- Macros are opaque (step 12): bloaty used to guess at expansions
+  (`mod x;` in `cfg_if!` token streams, `impl .. for` in `macro_rules!`
+  bodies, any macro's arguments as expressions). Each guess was a claim
+  needing expansion; now only an allow-list of well-known expression
+  macros is read, and what other macros name only suppresses claims.
 - Duplicates are exact syntactic claims (the same signature and body),
   not judgements of what could share code: an earlier design reasoned
   about which copy could call which (visibility, crates, targets, cfg

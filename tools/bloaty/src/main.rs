@@ -274,7 +274,7 @@ fn run(max_depth: usize) -> i32 {
 /// Version of the `--json` output, its first field `schema`. Bumped when a
 /// field consumers rely on changes or appears (the Neovim integration
 /// refuses older output rather than misread it).
-const SCHEMA: u32 = 6;
+const SCHEMA: u32 = 7;
 
 #[derive(serde::Serialize)]
 struct Versioned<'a, T> {

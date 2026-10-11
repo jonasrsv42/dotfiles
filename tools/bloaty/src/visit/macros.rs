@@ -1,126 +1,82 @@
-//! Items inside macro invocations bloaty only sees as tokens: `mod x;`
-//! declarations (`cfg_if!`) and trait impls in `macro_rules!` bodies.
+//! Macros are opaque: bloaty doesn't expand them or guess what they expand
+//! to. Two exceptions, both text as written: the arguments of the
+//! well-known macros in `EXPRESSION_MACROS` are read as expressions, and
+//! item-position macros whose whole body parses as Rust items are read as
+//! those items (visit.rs). Every other macro's tokens only count as name
+//! mentions and, in fn bodies, are scanned for explicit panic calls.
 
-use proc_macro2::{Delimiter, TokenStream, TokenTree};
-use syn::ext::IdentExt;
+use proc_macro2::{TokenStream, TokenTree};
+use std::collections::HashSet;
+use syn::parse::Parser;
+use syn::punctuated::Punctuated;
+use syn::{Expr, Token};
 
-/// `[#[cfg(test)]] [#[path = ".."]] [pub] mod name;` in macro tokens, as
-/// (name, path, under `#[cfg(test)]`). A `#[cfg(test)]` before a `{ .. }`
-/// group (`cfg_if!`'s `if #[cfg(test)] { .. }`) covers what's inside.
-pub(super) fn macro_mod_decls(
-    tokens: TokenStream,
-    test: bool,
-    out: &mut Vec<(String, Option<String>, bool)>,
-) {
-    let toks: Vec<TokenTree> = tokens.into_iter().collect();
-    let (mut cfg_test, mut path) = (false, None);
-    let mut i = 0;
-    while i < toks.len() {
-        match (&toks[i], toks.get(i + 1), toks.get(i + 2)) {
-            (TokenTree::Punct(p), Some(TokenTree::Group(g)), _)
-                if p.as_char() == '#' && g.delimiter() == Delimiter::Bracket =>
-            {
-                let attr = g.stream().to_string().replace(' ', "");
-                if attr == "cfg(test)" {
-                    cfg_test = true;
-                } else if let Some(p) = attr.strip_prefix("path=") {
-                    path = Some(p.trim_matches('"').to_string());
-                }
-                i += 2;
-                continue;
-            }
-            (TokenTree::Ident(kw), Some(TokenTree::Ident(name)), Some(TokenTree::Punct(semi)))
-                if kw == "mod" && semi.as_char() == ';' =>
-            {
-                out.push((name.unraw().to_string(), path.take(), test || cfg_test));
-                cfg_test = false;
-                i += 3;
-                continue;
-            }
-            (TokenTree::Ident(kw), ..) if kw == "pub" => {}
-            (TokenTree::Group(g), ..) => {
-                macro_mod_decls(g.stream(), test || cfg_test, out);
-                cfg_test = false;
-                path = None;
-            }
-            _ => {
-                cfg_test = false;
-                path = None;
-            }
-        }
-        i += 1;
-    }
+/// Macros whose arguments are comma-separated expressions, by last path
+/// segment (names aren't resolved: a workspace macro called `info` counts
+/// as tracing's). One table: metrics read only these as code.
+pub(crate) const EXPRESSION_MACROS: &[&str] = &[
+    // std
+    "format",
+    "format_args",
+    "print",
+    "println",
+    "eprint",
+    "eprintln",
+    "write",
+    "writeln",
+    "panic",
+    "unreachable",
+    "todo",
+    "unimplemented",
+    "assert",
+    "assert_eq",
+    "assert_ne",
+    "debug_assert",
+    "debug_assert_eq",
+    "debug_assert_ne",
+    "vec",
+    "matches",
+    "dbg",
+    "pin",
+    // log / tracing
+    "trace",
+    "debug",
+    "info",
+    "warn",
+    "error",
+    "event",
+];
+
+/// Whether `path!` is in `EXPRESSION_MACROS`.
+pub(crate) fn is_expression_macro(path: &syn::Path) -> bool {
+    path.segments
+        .last()
+        .is_some_and(|s| EXPRESSION_MACROS.iter().any(|m| s.ident == m))
 }
 
-/// Trait paths in `impl .. Trait for ..` headers inside a macro_rules body.
-/// `$crate::Trait` comes back as `crate::Trait`.
-pub(super) fn macro_trait_impls(tokens: TokenStream) -> Vec<Vec<String>> {
-    #[derive(PartialEq)]
-    enum Tok {
-        Ident(String),
-        Punct(char),
-        Open,
+/// The macro's arguments as comma-separated expressions, if it is in
+/// `EXPRESSION_MACROS` and they parse; `None` means opaque (a workspace
+/// `info!(B => Codec)` sharing tracing's name is opaque too).
+pub(crate) fn expression_args(m: &syn::Macro) -> Option<Punctuated<Expr, Token![,]>> {
+    if !is_expression_macro(&m.path) {
+        return None;
     }
-    fn flatten(ts: TokenStream, out: &mut Vec<Tok>) {
-        for tt in ts {
-            match tt {
-                TokenTree::Ident(i) => out.push(Tok::Ident(i.to_string())),
-                TokenTree::Punct(p) => out.push(Tok::Punct(p.as_char())),
-                TokenTree::Literal(_) => out.push(Tok::Punct('l')),
-                TokenTree::Group(g) => {
-                    out.push(Tok::Open);
-                    flatten(g.stream(), out);
-                    out.push(Tok::Punct(')'));
-                }
+    Punctuated::<Expr, Token![,]>::parse_terminated
+        .parse2(m.tokens.clone())
+        .ok()
+}
+
+/// Every identifier in the tokens.
+pub(super) fn token_words(tokens: TokenStream, out: &mut HashSet<String>) {
+    for tt in tokens {
+        match tt {
+            TokenTree::Ident(i) => {
+                out.insert(i.to_string());
             }
+            TokenTree::Group(g) => token_words(g.stream(), out),
+            _ => {}
         }
     }
-    let mut toks = Vec::new();
-    flatten(tokens, &mut toks);
-    let mut out = Vec::new();
-    for i in 0..toks.len() {
-        if toks[i] != Tok::Ident("impl".into()) {
-            continue;
-        }
-        let mut angle = 0i32;
-        for j in i + 1..(i + 48).min(toks.len()) {
-            match &toks[j] {
-                Tok::Open => break,
-                Tok::Punct('<') => angle += 1,
-                Tok::Punct('>') => angle -= 1,
-                Tok::Ident(s) if s == "for" && angle == 0 => {
-                    // Walk back over `$crate :: a :: Trait < .. >`.
-                    let mut k = j;
-                    let mut depth = 0i32;
-                    while k > i + 1 {
-                        match &toks[k - 1] {
-                            Tok::Punct('>') => depth += 1,
-                            Tok::Punct('<') => depth -= 1,
-                            _ if depth > 0 => {}
-                            _ => break,
-                        }
-                        k -= 1;
-                    }
-                    let mut path = Vec::new();
-                    while k > i + 1 {
-                        match &toks[k - 1] {
-                            Tok::Ident(s) => path.push(s.clone()),
-                            Tok::Punct(':') | Tok::Punct('$') => {}
-                            _ => break,
-                        }
-                        k -= 1;
-                    }
-                    path.reverse();
-                    if !path.is_empty() {
-                        out.push(path);
-                    }
-                    break;
-                }
-                _ => {}
-            }
-        }
-    }
-    out
 }
 
 #[cfg(test)]
@@ -128,34 +84,35 @@ mod tests {
     use crate::testutil::{fact, facts};
 
     #[test]
-    fn cfg_if_mod_decls_are_seen() {
+    fn macros_declare_no_modules() {
+        // `cfg_if!` bodies aren't Rust items: their `mod x;`s stay unseen
+        // (the files become orphans, see scan.rs), but the words count.
         let f = facts(
-            "cfg_if::cfg_if! {\n    if #[cfg(unix)] {\n        mod unix;\n    } else {\n        #[path = \"win.rs\"]\n        mod windows;\n    }\n}\ncfg_if::cfg_if! { if #[cfg(test)] { mod tests; } }",
+            "cfg_if::cfg_if! {\n    if #[cfg(unix)] {\n        mod unix;\n    } else {\n        #[path = \"win.rs\"]\n        mod windows;\n    }\n}",
         );
-        let decls: Vec<_> = f
-            .mod_decls
-            .iter()
-            .map(|d| (d.name.as_str(), d.path_attr.as_deref(), d.test))
-            .collect();
-        assert_eq!(
-            decls,
-            vec![
-                ("unix", None, false),
-                ("windows", Some("win.rs"), false),
-                ("tests", None, true)
-            ]
-        );
+        assert!(f.mod_decls.is_empty());
+        assert!(f.opaque_mods);
+        assert!(f.macro_words.contains("unix") && f.macro_words.contains("windows"));
+        // Item macros that parse as items are read as written.
+        let f = facts("cfg_rt! { pub mod runtime; }");
+        assert_eq!(f.mod_decls.len(), 1);
+        assert!(!f.opaque_mods);
     }
 
     #[test]
-    fn nested_items_and_macro_impls() {
+    fn nested_items_and_macro_words() {
         let f = facts(
-            "fn outer() {\n    let a = 1;\n    fn inner() {\n        let b = 2;\n    }\n}\nmacro_rules! m { ($t:ty) => { impl $crate::Tr<u8> for $t {} }; }",
+            "fn outer() {\n    let a = 1;\n    fn inner() {\n        let b = 2;\n    }\n}\nmacro_rules! m { ($t:ty) => { impl $crate::Tr<u8> for $t {} }; }\nfn g() { quote!(impl Codec for X); println!(\"{}\", Shown); }",
         );
         assert_eq!(fact(&f, "outer").nested, vec![(3, 5)]);
-        assert_eq!(
-            f.macro_impls,
-            vec![vec!["crate".to_string(), "Tr".to_string()]]
-        );
+        for w in ["Tr", "Codec"] {
+            assert!(f.macro_words.contains(w), "{w}");
+        }
+        // Expression macros are read as code, not as opaque tokens; a
+        // macro sharing an allow-listed name but not taking expressions is
+        // opaque.
+        assert!(!f.macro_words.contains("Shown"));
+        let f = facts("fn g() { info!(B => Codec); }");
+        assert!(f.macro_words.contains("Codec"));
     }
 }

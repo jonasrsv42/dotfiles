@@ -1,22 +1,24 @@
 //! `pass_through` (opt-in): fns whose body only forwards their inputs to
 //! another workspace fn.
 
-use super::{Category, Cx, Finding, Kind, plural};
+use super::{Category, Cx, Finding, Kind, Reason, plural};
 use crate::names::Loc;
+use crate::visit::body::{Callee, Forward};
 
-/// The fn name `target` calls if it may be the workspace's own: `helper`,
+/// Whether the call may be to the workspace's own fn: `helper`,
 /// `crate::m::f`, `Self::f`, `Type::f` with a workspace type, `self.f`;
 /// not `Arc::ptr_eq`, `u32::from` or `self.items.len`.
-fn workspace_callee<'t>(cx: &Cx, target: &'t str) -> Option<&'t str> {
-    if let Some((on, method)) = target.rsplit_once('.') {
-        return (on == "self").then_some(method);
+fn workspace_callee(cx: &Cx, target: &Forward) -> bool {
+    match &target.callee {
+        Callee::Method { on_self } => *on_self,
+        Callee::Path(segments) => {
+            let head = segments.first().map_or("", String::as_str);
+            let std = matches!(head, "std" | "core" | "alloc");
+            let local = matches!(head, "crate" | "self" | "super" | "Self")
+                || (!std && cx.workspace_names.contains(head));
+            segments.len() == 1 || local
+        }
     }
-    let head = target.split("::").next().unwrap_or(target);
-    let std = matches!(head, "std" | "core" | "alloc");
-    let local = matches!(head, "crate" | "self" | "super" | "Self")
-        || (!std && cx.workspace_names.contains(head));
-    let foreign = target.contains("::") && !local;
-    (!foreign).then(|| target.rsplit("::").next().unwrap_or(target))
 }
 
 /// Only forwarding to the workspace's own fns counts: a free fn, an
@@ -30,11 +32,18 @@ pub(super) fn pass_through(cx: &mut Cx, out: &mut Vec<Finding>) {
             let Some(target) = &func.forwards_to else {
                 continue;
             };
-            let Some(callee) = workspace_callee(cx, target) else {
-                continue;
-            };
+            let callee = target.name.as_str();
             let constructor = callee == "new" || callee.starts_with("from_");
-            if constructor || callee == func.ident || !cx.fn_defs.contains_key(callee) {
+            if !workspace_callee(cx, target)
+                || constructor
+                || callee == func.ident
+                || !cx.fn_defs.contains_key(callee)
+            {
+                continue;
+            }
+            // Which of several same-named fns it calls takes name resolution.
+            if cx.fn_defs.get(callee).copied().unwrap_or(0) > 1 {
+                cx.exclude(Kind::PassThrough, Reason::SameName);
                 continue;
             }
             if cx.skip_pub(Kind::PassThrough, f, func.vis) {
@@ -54,10 +63,10 @@ pub(super) fn pass_through(cx: &mut Cx, out: &mut Vec<Finding>) {
                 Finding {
                     vis: Some(func.vis),
                     lines,
-                    target: Some(target.clone()),
+                    target: Some(target.text.clone()),
                     refs: refs.map(|(r, _)| r),
                     test_refs: refs.map(|(_, t)| t),
-                    detail: format!("forwards to {target}; {refs_text}"),
+                    detail: format!("forwards to {}; {refs_text}", target.text),
                     ..Finding::new(
                         Kind::PassThrough,
                         Category::Impl,
@@ -87,6 +96,21 @@ mod tests {
         let mut pass = names(&run(&fx, false), Kind::PassThrough);
         pass.sort();
         assert_eq!(pass, vec!["S::fwd", "S::go"]);
+    }
+
+    #[test]
+    fn pass_through_to_a_shared_name_makes_no_claim() {
+        let fx = Fixture::new(&[
+            ("Cargo.toml", "[package]\nname = \"m\"\n"),
+            (
+                "src/main.rs",
+                "fn main() { go(1); solo(1); }\nfn go(x: u8) -> u8 { helper(x) }\nfn solo(x: u8) -> u8 { only(x) }\nfn helper(x: u8) -> u8 { x }\nfn only(x: u8) -> u8 { x }\nmod m {\n    pub fn helper(x: u8) -> u8 { x }\n}\n",
+            ),
+        ]);
+        let all = run(&fx, false);
+        assert_eq!(names(&all, Kind::PassThrough), vec!["solo"]);
+        let why = &all.unclaimed[&Kind::PassThrough];
+        assert_eq!(why.get(&Reason::SameName), Some(&1));
     }
 
     #[test]

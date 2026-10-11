@@ -6,6 +6,13 @@ Workflow: `bloaty summary` to see where the code is, drill in with
 for per-fn cyclomatic complexity, nesting and panic sites. Findings are hints: check
 each one, and compile after removing anything.
 
+bloaty is purely syntactic, to stay fast: names aren't resolved (same-named
+items count as the same), macros aren't expanded (only well-known std and
+log/tracing expression macros are read; files declared only inside
+macros are classified by path), cfgs aren't evaluated, types and
+lifetimes aren't checked. It may miss things; where a claim would need more
+it makes none. For precision, use rust-analyzer.
+
 The crates around PATH are analysed together with every crate linked to them
 (same workspace, or path/patch dependencies either way), so test code and
 cross-crate uses are seen; output is narrowed to PATH. Unrelated crates in

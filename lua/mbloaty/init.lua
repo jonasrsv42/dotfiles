@@ -63,7 +63,7 @@ local MARK_KINDS = { "duplicate", "unused", "single-impl-trait" }
 local DEBOUNCE_MS = 1500
 -- The `--json` format this code reads (bloaty's `schema` field). Older or
 -- unversioned output is refused, not misread.
-local SCHEMA = 6
+local SCHEMA = 7
 -- Called with (dir, root data) when a root's runs finish (the lens).
 local listeners = {}
 

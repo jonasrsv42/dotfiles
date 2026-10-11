@@ -16,7 +16,7 @@ pub use duplicate::{Duplicate, Tier};
 
 use crate::names::{Loc, short_name};
 use crate::scan::{FileAnalysis, Scan};
-use crate::visit::Vis;
+use crate::visit::{ItemKind, Vis};
 use serde::Serialize;
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -146,6 +146,21 @@ pub struct Findings {
     /// Duplicate groups each criterion removed (groups that were
     /// duplicates by text size alone).
     pub excluded: BTreeMap<Criterion, usize>,
+    /// Claims of name-based kinds left unmade, per kind and reason.
+    pub unclaimed: BTreeMap<Kind, BTreeMap<Reason, usize>>,
+}
+
+/// Why a name-based kind made no claim about an item it would otherwise
+/// have reported: the claim would need name resolution or macro expansion.
+#[derive(Serialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[serde(rename_all = "snake_case")]
+pub enum Reason {
+    /// Other definitions in the workspace share the name the claim
+    /// matches by (which one a mention or impl means is unknown).
+    SameName,
+    /// Named in an opaque macro (`macro_rules!`, `quote!`, ...), whose
+    /// expansion may implement it.
+    NamedInMacro,
 }
 
 /// What a duplicate must be beyond equal bodies (see findings/duplicate.rs).
@@ -163,6 +178,10 @@ struct Cx<'a> {
     test_refs: HashMap<&'a str, u32>,
     /// How many fns are defined with each name.
     fn_defs: HashMap<&'a str, u32>,
+    /// How many fns, types, aliases and traits are defined with each name.
+    defs: HashMap<&'a str, u32>,
+    /// Words in opaque macro tokens anywhere in the workspace.
+    macro_words: HashSet<&'a str>,
     /// Mentions of each type name inside its own definition and impls,
     /// split like `refs`/`test_refs`.
     type_self_refs: HashMap<&'a str, u32>,
@@ -174,10 +193,11 @@ struct Cx<'a> {
     /// from one declared somewhere bloaty couldn't follow).
     crate_modules: HashSet<(usize, &'a str)>,
     /// Crates with code we can't see: generated code, unparsed files,
-    /// unresolved modules.
+    /// unresolved modules, item macros that may declare modules.
     uncertain: HashSet<usize>,
     hidden_pub: BTreeMap<Kind, usize>,
     excluded: BTreeMap<Criterion, usize>,
+    unclaimed: BTreeMap<Kind, BTreeMap<Reason, usize>>,
 }
 
 impl<'a> Cx<'a> {
@@ -188,6 +208,8 @@ impl<'a> Cx<'a> {
             refs: HashMap::new(),
             test_refs: HashMap::new(),
             fn_defs: HashMap::new(),
+            defs: HashMap::new(),
+            macro_words: HashSet::new(),
             type_self_refs: HashMap::new(),
             test_type_self_refs: HashMap::new(),
             workspace_names: scan.crates.iter().map(|c| c.lib_name.as_str()).collect(),
@@ -195,6 +217,7 @@ impl<'a> Cx<'a> {
             uncertain: HashSet::new(),
             hidden_pub: BTreeMap::new(),
             excluded: BTreeMap::new(),
+            unclaimed: BTreeMap::new(),
         };
         for f in &scan.files {
             cx.add_file(f);
@@ -239,13 +262,23 @@ impl<'a> Cx<'a> {
         for func in &f.facts.fns {
             *self.fn_defs.entry(func.ident.as_str()).or_default() += 1;
         }
+        let traits = f.facts.items.iter().filter(|i| i.kind == ItemKind::Trait);
+        let defined = (f.facts.fns.iter().map(|func| func.ident.as_str()))
+            .chain(traits.map(|t| t.name.as_str()))
+            .chain(f.facts.type_names.iter().map(String::as_str));
+        for name in defined {
+            *self.defs.entry(name).or_default() += 1;
+        }
+        self.macro_words
+            .extend(f.facts.macro_words.iter().map(String::as_str));
         let names = f.facts.modules.iter().chain(&f.facts.type_names);
         self.workspace_names.extend(names.map(String::as_str));
         let Some(c) = f.crate_idx else { return };
         self.crate_modules
             .extend(f.facts.modules.iter().map(|m| (c, m.as_str())));
         let unseen_out_dir = f.facts.out_dir_include && !self.scan.crates[c].has_build_script();
-        if unseen_out_dir || f.facts.generated_code || f.unanalysed || f.unresolved_mods {
+        let unseen = f.unanalysed || f.unresolved_mods || f.facts.opaque_mods;
+        if unseen_out_dir || f.facts.generated_code || unseen {
             self.uncertain.insert(c);
         }
     }
@@ -270,6 +303,21 @@ impl<'a> Cx<'a> {
         skip
     }
 
+    /// Whether other definitions share `name` (see `defs`).
+    fn ambiguous(&self, name: &str) -> bool {
+        self.defs.get(name).copied().unwrap_or(0) > 1
+    }
+
+    /// Counts a claim `kind` didn't make, and why.
+    fn exclude(&mut self, kind: Kind, why: Reason) {
+        *self
+            .unclaimed
+            .entry(kind)
+            .or_default()
+            .entry(why)
+            .or_default() += 1;
+    }
+
     fn focus(&self) -> impl Iterator<Item = &'a FileAnalysis> + 'a {
         self.scan.files.iter().filter(|f| f.in_focus)
     }
@@ -289,7 +337,7 @@ pub fn findings(scan: &Scan, opts: &Options) -> Findings {
     unused::unused(&mut cx, &mut out);
     single_impl_trait::single_impl_traits(&mut cx, &mut out);
     pass_through::pass_through(&mut cx, &mut out);
-    long_fn::long_fns(&cx, &duplicated, &mut out);
+    long_fn::long_fns(&mut cx, &duplicated, &mut out);
     test_heavy::test_heavy(&cx, &mut out);
     out.sort_by(|a, b| {
         (a.kind, a.rank, &a.at.file, a.at.line).cmp(&(b.kind, b.rank, &b.at.file, b.at.line))
@@ -298,6 +346,7 @@ pub fn findings(scan: &Scan, opts: &Options) -> Findings {
         all: out,
         hidden_pub: cx.hidden_pub,
         excluded: cx.excluded,
+        unclaimed: cx.unclaimed,
     }
 }
 
@@ -336,6 +385,9 @@ pub struct Report<'a> {
     /// Duplicate groups each criterion removed: groups of copies that are
     /// duplicates by text size alone (empty unless duplicates are shown).
     pub excluded_duplicates: &'a BTreeMap<Criterion, usize>,
+    /// Claims of the shown name-based kinds left unmade, per kind and
+    /// reason (they would need name resolution or macro expansion).
+    pub unclaimed: BTreeMap<Kind, &'a BTreeMap<Reason, usize>>,
     pub findings: Vec<&'a Finding>,
 }
 
@@ -411,6 +463,12 @@ pub fn report<'a>(
         } else {
             &NONE_EXCLUDED
         },
+        unclaimed: all
+            .unclaimed
+            .iter()
+            .filter(|(k, _)| wanted(**k))
+            .map(|(k, v)| (*k, v))
+            .collect(),
         findings,
     }
 }
@@ -515,6 +573,21 @@ pub fn render(r: &Report, scan: &Scan) -> String {
             out,
             "\nnot duplicates (groups with equal text, by criterion): {}",
             not_dup.join(", ")
+        );
+    }
+    let unclaimed: Vec<String> = r
+        .unclaimed
+        .iter()
+        .flat_map(|(k, why)| {
+            why.iter()
+                .map(move |(w, n)| format!("{n} {} ({})", json_name(k), json_name(w)))
+        })
+        .collect();
+    if !unclaimed.is_empty() {
+        let _ = writeln!(
+            out,
+            "\nnot claimed (would need name resolution or macro expansion): {}",
+            unclaimed.join(", ")
         );
     }
     if r.hidden_pub > 0 {
@@ -637,6 +710,7 @@ mod tests {
             "shown",
             "hidden_pub",
             "excluded_duplicates",
+            "unclaimed",
             "duplicate_notes",
             "findings",
         ] {

@@ -70,7 +70,7 @@ fn group<'a>(summary: &'a Value, name: &str) -> &'a Value {
 #[test]
 fn summary_by_file() {
     let v = Ws::new("summary").run(&["summary", ".", "--by", "file", "--json"]);
-    assert_eq!(v["schema"], 6);
+    assert_eq!(v["schema"], 7);
     // What the fixture is for: each role still plays out.
     let level = |name: &str| -> Value { group(&v, name)["smell"]["level"].clone() };
     assert_eq!(level("core/src/hot.rs"), "hot");
@@ -122,7 +122,7 @@ fn summary_by_file() {
 #[test]
 fn findings() {
     let v = Ws::new("findings").run(&["findings", ".", "--json", "--top", "0"]);
-    assert_eq!(v["schema"], 6);
+    assert_eq!(v["schema"], 7);
     let kinds: Vec<&str> = v["findings"]
         .as_array()
         .unwrap()
@@ -172,7 +172,7 @@ fn findings() {
 #[test]
 fn metrics() {
     let v = Ws::new("metrics").run(&["metrics", ".", "--json"]);
-    assert_eq!(v["schema"], 6);
+    assert_eq!(v["schema"], 7);
     let sites: Vec<&str> = v["functions"]
         .as_array()
         .unwrap()

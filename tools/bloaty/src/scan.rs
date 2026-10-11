@@ -102,6 +102,11 @@ pub struct FileAnalysis {
     pub unresolved_mods: bool,
     /// No crate root reaches it through `mod` declarations: not compiled.
     pub orphan: bool,
+    /// An orphan whose stem is a word in its crate's opaque macros: a macro
+    /// may declare it (`cfg_if! { if #[cfg(test)] { mod testutil; } }`), so
+    /// its impl/test split is by path only. Claims that depend on that
+    /// split (unused, long-fn, duplicates, smell) aren't made.
+    pub macro_declared: bool,
     /// Whole-test, but only under cfgs the recommended check doesn't build
     /// (`#[cfg(loom)] mod x;`): its mentions count as ordinary uses.
     pub unchecked_test: bool,
@@ -299,6 +304,7 @@ pub fn scan(focus: &[PathBuf], opts: &ScanOptions) -> Result<Scan, String> {
         }
     }
     resolve_modules(&mut files, &crates);
+    mark_macro_declared(&mut files);
 
     files.sort_by(|a, b| a.rel.cmp(&b.rel));
     skipped.sort();
@@ -906,6 +912,7 @@ fn analyse(
         unanalysed: problem.is_some(),
         unresolved_mods: false,
         orphan: false,
+        macro_declared: false,
         unchecked_test: false,
         cfgs: Vec::new(),
         lines,
@@ -994,6 +1001,31 @@ fn resolve_modules(files: &mut [FileAnalysis], crates: &[Crate]) {
         f.unresolved_mods = unresolved.contains(&i);
         f.orphan = !compiled.contains(&i);
         f.unchecked_test = f.whole_test && unchecked.contains(&i);
+    }
+}
+
+/// Sets `macro_declared` on orphans a macro of their crate may declare.
+fn mark_macro_declared(files: &mut [FileAnalysis]) {
+    let mut words: HashSet<(usize, String)> = HashSet::new();
+    for f in files.iter() {
+        if let Some(c) = f.crate_idx {
+            words.extend(f.facts.macro_words.iter().map(|w| (c, w.clone())));
+        }
+    }
+    for f in files.iter_mut().filter(|f| f.orphan) {
+        let stem = f.path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+        let stem = if stem == "mod" {
+            f.path
+                .parent()
+                .and_then(|d| d.file_name())
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+        } else {
+            stem
+        };
+        f.macro_declared = f
+            .crate_idx
+            .is_some_and(|c| words.contains(&(c, stem.to_string())));
     }
 }
 

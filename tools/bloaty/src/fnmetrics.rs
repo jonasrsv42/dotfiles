@@ -2,14 +2,13 @@
 //! second, small walk over each non-test fn body, separate from the main
 //! visitor in `visit`.
 
+use crate::visit::macros::expression_args;
 use crate::visit::syntax::last_segment;
 use proc_macro2::{Delimiter, TokenStream, TokenTree};
 use serde::Serialize;
-use syn::parse::Parser;
-use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
 use syn::visit::{self, Visit};
-use syn::{Block, Expr, FnArg, Item, Token};
+use syn::{Block, Expr, FnArg, Item};
 
 /// One panic site counted in `FnMetrics::panics`.
 #[derive(Serialize, Clone, PartialEq, Eq, Debug)]
@@ -29,8 +28,9 @@ pub struct FnMetrics {
     /// `else if` too), `match` (one, however many arms: a flat match reads
     /// as one decision), `while`/`for`/`loop`, `&&`/`||` and `let .. else`.
     /// `?` isn't counted: early returns on error are the normal path. Macro
-    /// arguments count when they parse as comma-separated expressions
-    /// (`format!`, `vec!`, `assert!`), not otherwise (`tokio::select!`).
+    /// arguments count only for `macros::EXPRESSION_MACROS` (`format!`,
+    /// `vec!`, `assert!`) when they parse as comma-separated expressions;
+    /// other macros are opaque (`tokio::select!`, `json!`, `my_dsl!`).
     #[serde(rename = "cyclomatic_complexity")]
     pub complexity: u32,
     /// Deepest nesting of `if`/`match`/loops/closures/`let .. else`/block
@@ -43,9 +43,9 @@ pub struct FnMetrics {
     pub params: u32,
     /// `.unwrap()`, `.expect(x)` (not `.expect(x)?`), `panic!`,
     /// `unreachable!`, `todo!`, `unimplemented!`, `assert!`, `assert_eq!`,
-    /// `assert_ne!`, also inside macro arguments.
+    /// `assert_ne!`, also written inside any macro's arguments.
     pub panics: u32,
-    /// `.clone()` calls, also inside macro arguments.
+    /// `.clone()` calls, also written inside any macro's arguments.
     pub clones: u32,
 }
 
@@ -175,9 +175,10 @@ impl MetricsWalk {
         }
     }
 
-    /// Panic sites and clones in macro tokens that aren't expressions
-    /// (`tokio::select!`, `vec![x; n]`, items): `. unwrap ( )`,
+    /// Panic sites and clones written in opaque macro tokens (`tokio::select!`,
+    /// `vec![x; n]`, items, any macro outside the allow-list): `. unwrap ( )`,
     /// `. expect ( x )` not followed by `?`, `. clone ( )` and `panic ! ..`.
+    /// Text the user wrote, not a guess at the expansion; no complexity.
     fn scan_tokens(&mut self, tokens: TokenStream) {
         let toks: Vec<TokenTree> = tokens.into_iter().collect();
         for (i, tt) in toks.iter().enumerate() {
@@ -306,11 +307,12 @@ impl<'ast> Visit<'ast> for MetricsWalk {
                 .map_or(m.path.span(), |s| s.ident.span());
             self.panic_at(span, format!("{name}!"));
         }
-        // Most macros take expressions (`format!`, `vec!`, `assert!`): walk
-        // them like code so their branches and closures count.
-        match Punctuated::<Expr, Token![,]>::parse_terminated.parse2(m.tokens.clone()) {
-            Ok(args) => args.iter().for_each(|a| self.visit_expr(a)),
-            Err(_) => self.scan_tokens(m.tokens.clone()),
+        // Well-known expression macros (`format!`, `vec!`, `assert!`): walk
+        // their arguments like code so branches and closures count. Others
+        // are opaque.
+        match expression_args(m) {
+            Some(args) => args.iter().for_each(|a| self.visit_expr(a)),
+            None => self.scan_tokens(m.tokens.clone()),
         }
     }
 }
@@ -505,6 +507,12 @@ mod tests {
         // Not expressions: only panic sites and clones are seen.
         let a = m("tokio::select! { v = rx.recv() => if v { v.unwrap() } else { w.clone() }, }");
         assert_eq!((a.complexity, a.nesting, a.panics, a.clones), (1, 0, 1, 1));
+        // Macros outside the allow-list are opaque even when their
+        // arguments parse: written panics and clones count, branches don't.
+        let a = m("my_log!(if x > 1 { v.unwrap() } else { w.clone() });");
+        assert_eq!((a.complexity, a.nesting, a.panics, a.clones), (1, 0, 1, 1));
+        let a = m("tracing::info!(\"{}\", if x > 1 { 1 } else { 2 });");
+        assert_eq!((a.complexity, a.nesting), (2, 1));
     }
 
     #[test]

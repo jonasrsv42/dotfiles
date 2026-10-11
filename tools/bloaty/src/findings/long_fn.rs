@@ -1,15 +1,20 @@
 //! `long_fn`: fns over `--long-fn` own code lines.
 
-use super::{Cx, Finding, Kind, category};
+use super::{Cx, Finding, Kind, Reason, category};
 use crate::names::Loc;
 use std::collections::HashSet;
 
 /// `duplicated`: (file, line) of fns already reported as duplicates.
-pub(super) fn long_fns(cx: &Cx, duplicated: &HashSet<(String, usize)>, out: &mut Vec<Finding>) {
+pub(super) fn long_fns(cx: &mut Cx, duplicated: &HashSet<(String, usize)>, out: &mut Vec<Finding>) {
     for f in cx.focus() {
         for func in &f.facts.fns {
             let lines = f.own_lines(func);
             if lines > cx.opts.long_fn {
+                // Test or not is by path only in a file a macro may declare.
+                if f.macro_declared {
+                    cx.exclude(Kind::LongFn, Reason::NamedInMacro);
+                    continue;
+                }
                 let category = category(func.in_test || f.whole_test);
                 out.push(
                     Finding {

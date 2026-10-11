@@ -4,12 +4,12 @@
 //! traits/types, impls and derives, and how often each name is mentioned.
 //!
 //! Submodules: `cfg` (what is test code), `body` (forwarding, body hashes),
-//! `macros` (items only seen as macro tokens), `sig` (signatures as text),
+//! `macros` (which macros are read, the rest opaque), `sig` (signatures as text),
 //! `syntax` (paths and types as text). Per-fn measures live in fnmetrics.rs, shapes in shape.rs.
 
 pub(crate) mod body;
 mod cfg;
-mod macros;
+pub(crate) mod macros;
 pub(crate) mod sig;
 pub(crate) mod syntax;
 
@@ -17,7 +17,7 @@ use crate::fnmetrics::{FnMetrics, PanicSite, fn_metrics};
 use crate::shape::{self, Lint, Shape};
 use body::{body_hashes, forward_target, is_struct_literal, logic};
 use cfg::{always_built, cfg_attrs, is_checked_test, is_test_only};
-use macros::{macro_mod_decls, macro_trait_impls};
+use macros::{expression_args, token_words};
 use proc_macro2::{TokenStream, TokenTree};
 use quote::ToTokens;
 use serde::Serialize;
@@ -71,8 +71,14 @@ pub struct FileFacts {
     pub fns: Vec<FnFact>,
     pub items: Vec<ItemFact>,
     pub impls: Vec<ImplFact>,
-    /// Trait paths implemented inside `macro_rules!` bodies.
-    pub macro_impls: Vec<Vec<String>>,
+    /// Words in opaque macro tokens (`macro_rules!` bodies, item macros,
+    /// `quote!`, anything not in `macros::EXPRESSION_MACROS`): what they
+    /// expand to may implement or declare anything named here.
+    pub macro_words: HashSet<String>,
+    /// An item-position macro bloaty can't read as items mentions `mod`
+    /// (`cfg_if! { if #[cfg(unix)] { mod unix; } }`): it may declare
+    /// modules bloaty doesn't follow.
+    pub opaque_mods: bool,
     /// Name mentions outside definitions and plain imports, split by whether
     /// the mention sits in test code.
     pub refs: HashMap<String, u32>,
@@ -154,7 +160,7 @@ pub struct FnFact {
     /// items (`cfg (unix)`), outermost first.
     pub cfgs: Vec<String>,
     /// Set when the body is a single call that only passes its inputs along.
-    pub forwards_to: Option<String>,
+    pub forwards_to: Option<body::Forward>,
     /// Its signature, name left out (duplicates compare it).
     pub signature: Signature,
     /// The line of the body's opening brace: lines before it (from `line`)
@@ -877,14 +883,17 @@ impl<'ast> Visit<'ast> for Visitor<'_> {
     }
 
     fn visit_item_macro(&mut self, m: &'ast syn::ItemMacro) {
+        token_words(m.mac.tokens.clone(), &mut self.facts.macro_words);
         if m.mac.path.is_ident("macro_rules") {
-            self.facts
-                .macro_impls
-                .extend(macro_trait_impls(m.mac.tokens.clone()));
+            // A template with `mod` may declare modules where it's invoked.
+            let mut words = HashSet::new();
+            token_words(m.mac.tokens.clone(), &mut words);
+            self.facts.opaque_mods |= words.contains("mod");
             return visit::visit_item_macro(self, m);
         }
         // Item-position macros like tokio's `cfg_rt! { pub mod runtime; }`
-        // usually wrap plain items: parse and visit them as if unwrapped, so
+        // usually wrap plain items: when the whole body parses as Rust
+        // items, visit them as written (no guess at the expansion), so
         // their modules and the names they use are seen. What they define
         // is exempt from `unused`: the macro may export it (`#[no_mangle]`)
         // or turn it into a test.
@@ -904,22 +913,13 @@ impl<'ast> Visit<'ast> for Visitor<'_> {
                 }
                 self.macro_depth -= 1;
             }
-            // `cfg_if! { if #[cfg(unix)] { mod unix; } else { .. } }` isn't
-            // valid Rust, but its `mod x;`s are real.
+            // Opaque (`cfg_if! { if #[cfg(unix)] { mod unix; } .. }` isn't
+            // Rust): its words count as mentions, and a `mod` in it means
+            // modules bloaty may not see.
             _ => {
-                let mut decls = Vec::new();
-                macro_mod_decls(m.mac.tokens.clone(), false, &mut decls);
-                for (name, path_attr, test) in decls {
-                    self.facts.modules.push(name.clone());
-                    self.facts.mod_decls.push(ModDecl {
-                        inline_path: self.inline_path.clone(),
-                        name,
-                        path_attr,
-                        test: test || self.in_test(),
-                        checked: self.ref_test_depth > 0 || (test && self.unchecked_depth == 0),
-                        cfgs: self.cfg_stack.clone(),
-                    });
-                }
+                let mut words = HashSet::new();
+                token_words(m.mac.tokens.clone(), &mut words);
+                self.facts.opaque_mods |= words.contains("mod");
                 visit::visit_item_macro(self, m)
             }
         }
@@ -939,6 +939,9 @@ impl<'ast> Visit<'ast> for Visitor<'_> {
         // Macro arguments are opaque tokens to syn; names used in
         // `assert_eq!(f(x), 1)` or `vec![T::new()]` still count as uses.
         self.count_token_refs(m.tokens.clone(), self.ctx.build_script);
+        if expression_args(m).is_none() {
+            token_words(m.tokens.clone(), &mut self.facts.macro_words);
+        }
         visit::visit_macro(self, m);
     }
 
