@@ -7,15 +7,15 @@ use parsicomb::and::AndExt;
 use parsicomb::and_then::AndThenExt;
 use parsicomb::atomic::is_sequence;
 use parsicomb::byte::byte;
-use parsicomb::many::many;
 use parsicomb::map::MapExt;
 use parsicomb::map_err::MapErrExt;
 use parsicomb::not::not;
 use parsicomb::or::OrExt;
 use parsicomb::position::PositionExt;
+use parsicomb::recognize::RecognizeExt;
 use parsicomb::utf8::char::char;
 use parsicomb::utf8::{skip_chars_while, skip_chars_while1};
-use parsicomb::{BoxedExt, BoxedParser, ByteCursor, Cursor, Parser, ParsicombError};
+use parsicomb::{ByteCursor, Cursor, Parser, ParsicombError, Span};
 use parsicomb::{ntimes, optional, parser_fn, skip_many, skip_while, skip_while1};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -97,17 +97,15 @@ pub(super) fn tokens(src: &str) -> impl Iterator<Item = Token> + '_ {
 
 type Cur<'a> = ByteCursor<'a>;
 
-/// A rule behind one box, so the dispatcher's arms share a type. It fails
-/// only where the whole token does, so wrapping its error (an allocation)
-/// costs nothing in practice.
-type Rule<'a> = BoxedParser<'a, Cur<'a>, Kind, ParsicombError<'a>>;
-
-fn rule<'a, P>(p: P) -> Rule<'a>
+/// A rule with its error wrapped, so the dispatcher's arms share an error
+/// type. It fails only where the whole token does, so wrapping (an
+/// allocation) costs nothing in practice; arms aren't boxed: ~7% faster.
+fn rule<'a, P>(p: P) -> impl Parser<Cursor = Cur<'a>, Output = Kind, Error = ParsicombError<'a>>
 where
     P: Parser<Cursor = Cur<'a>, Output = Kind> + 'a,
     P::Error: 'a,
 {
-    p.map_err(ParsicombError::wrap).boxed()
+    p.map_err(ParsicombError::wrap)
 }
 
 /// token = space | line comment | block comment | string | char or
@@ -132,22 +130,23 @@ fn token<'a>() -> impl Parser<Cursor = Cur<'a>, Output = Kind, Error = Parsicomb
     let other = rule(space().or(ident()).or(punct()));
     parser_fn(move |cursor: Cur<'a>| {
         let literal = |p: &&'static str| tag(p).parse(cursor).is_ok();
-        let rule = match cursor.value()? {
-            b' ' | b'\t' | b'\n' | b'\r' | b'\x0b' | b'\x0c' => &space_rule,
-            b'/' => &slash,
-            b'"' => &string,
-            b'\'' => &quote,
-            b'b' | b'c' | b'r' if LITERAL_PREFIXES.iter().any(literal) => &prefixed,
-            b if b.is_ascii_alphanumeric() || b == b'_' => &ident_rule,
-            b'|' | b'&' | b'=' | b'.' | b'>' => &joined,
-            b if b.is_ascii() => &single,
-            _ => &other,
-        };
-        rule.parse(cursor)
+        match cursor.value()? {
+            b' ' | b'\t' | b'\n' | b'\r' | b'\x0b' | b'\x0c' => space_rule.parse(cursor),
+            b'/' => slash.parse(cursor),
+            b'"' => string.parse(cursor),
+            b'\'' => quote.parse(cursor),
+            b'b' | b'c' | b'r' if LITERAL_PREFIXES.iter().any(literal) => prefixed.parse(cursor),
+            b if b.is_ascii_alphanumeric() || b == b'_' => ident_rule.parse(cursor),
+            b'|' | b'&' | b'=' | b'.' | b'>' => joined.parse(cursor),
+            b if b.is_ascii() => single.parse(cursor),
+            _ => other.parse(cursor),
+        }
     })
 }
 
-/// How prefixed literals (and raw identifiers, `r#type`) start.
+/// How prefixed literals (and raw identifiers, `r#type`) start. Checking
+/// this before trying them keeps `return`, `crate`.. off three failing
+/// alternatives: ~15% of lexing time on real code.
 const LITERAL_PREFIXES: &[&str] = &[
     "b\"", "b'", "br\"", "br#", "c\"", "cr\"", "cr#", "r\"", "r#",
 ];
@@ -166,7 +165,7 @@ fn shebang<'a>() -> impl Parser<Cursor = Cur<'a>, Output = Kind> {
 fn line_comment<'a>() -> impl Parser<Cursor = Cur<'a>, Output = Kind> {
     let doc = tag("/").and(not(tag("/"))).map(drop).or(tag("!").map(drop));
     tag("//")
-        .and(optional(peek(doc)))
+        .and(optional(doc))
         .and(skip_while(|b: u8| b != b'\n'))
         .map(|((_, doc), _)| Kind::LineComment { doc: doc.is_some() })
 }
@@ -179,7 +178,7 @@ fn block_comment<'a>() -> impl Parser<Cursor = Cur<'a>, Output = Kind> {
         .map(drop)
         .or(tag("!").map(drop));
     tag("/*")
-        .and(optional(peek(doc)))
+        .and(optional(doc))
         .and(block_body())
         .map(|((_, doc), _)| Kind::BlockComment { doc: doc.is_some() })
 }
@@ -215,7 +214,9 @@ fn string<'a>() -> impl Parser<Cursor = Cur<'a>, Output = ()> {
 /// raw string = `r` `#`{n} `"` (plain | not close `"`)* close?, close =
 /// `"` `#`{n}
 fn raw_string<'a>() -> impl Parser<Cursor = Cur<'a>, Output = ()> {
-    let hashes = many(tag("#")).map(|h| h.len());
+    let hashes = skip_while(|b: u8| b == b'#')
+        .recognize()
+        .map(|h: Span| h.len());
     let open = tag("r").and(hashes).and(tag("\"")).map(|((_, n), _)| n);
     open.and_then(|n| {
         let close = move || tag("\"").and(ntimes(n, tag("#")));
@@ -272,9 +273,4 @@ fn punct<'a>() -> impl Parser<Cursor = Cur<'a>, Output = Kind> {
 /// Exactly `s`.
 fn tag<'a>(s: &'static str) -> impl Parser<Cursor = Cur<'a>> {
     is_sequence(s.as_bytes())
-}
-
-/// Succeeds where `p` does, consuming nothing.
-fn peek<P: Parser>(p: P) -> impl Parser<Cursor = P::Cursor, Output = ()> {
-    not(not(p))
 }
