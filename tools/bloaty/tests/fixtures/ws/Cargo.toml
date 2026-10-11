@@ -1,0 +1,6 @@
+# Golden fixture for bloaty's tests (tests/golden.rs, nvim_test.lua): not
+# part of bloaty's build. Small on purpose; every file has a role, see
+# tests/golden.rs.
+[workspace]
+members = ["core", "app"]
+resolver = "2"

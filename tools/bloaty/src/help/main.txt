@@ -1,0 +1,26 @@
+Where does the code in a Rust project live, and where is it bloated?
+
+Workflow: `bloaty summary` to see where the code is, drill in with
+`--by module --depth N` or a PATH, then `bloaty findings PATH --json` (or
+`--kind duplicate` etc.) for ranked places to cut, and `bloaty metrics PATH`
+for per-fn cyclomatic complexity, nesting and panic sites. Findings are hints: check
+each one, and compile after removing anything.
+
+The crates around PATH are analysed together with every crate linked to them
+(same workspace, or path/patch dependencies either way), so test code and
+cross-crate uses are seen; output is narrowed to PATH. Unrelated crates in
+the same repository are left out.
+
+Test code is anything under tests/ or benches/, behind a cfg that implies test
+(cfg(test), all(test, ..), any(test, feature = "testdb"), any(test, doc),
+#![cfg(test)], and loom/fuzzing builds), a #[test]-style fn, or a module
+declared from test code. Cargo features named like test/testing/test-utils/
+testdb/mock/fake count as test-only; adjust with --test-feature /
+--no-test-feature.
+
+Files ignored by .gitignore (and .ignore, .git/info/exclude, the global
+gitignore) and cargo target dirs are skipped, as are files matched by a
+.bloatyignore: gitignore syntax, for code only bloaty should skip (test
+fixtures). A .bloatyignore takes precedence, so its `!pattern` lines can
+bring back gitignored files. Only ignore files inside the workspace root
+count, not those of directories above it.

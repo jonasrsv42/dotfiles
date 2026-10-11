@@ -42,19 +42,19 @@ require("neo-tree").setup({
   },
   filesystem = {
     -- bloaty: dim impl line counts per file/dir, `•` where it found bloat
-    -- (lua/mbloaty.lua). The renderers are neo-tree v3's defaults plus it;
+    -- (lua/mbloaty/tree.lua). The renderers are neo-tree v3's defaults plus it;
     -- it gives way first (zindex 5) when names need the width.
     components = {
       -- (config, node, state, remaining width)
       bloaty = function(...)
-        return require("mbloaty").component(...)
+        return require("mbloaty.tree").component(...)
       end,
     },
     window = {
       mappings = {
         -- bloaty: explain the line count / smell of the node under the cursor.
         ["B"] = function(state)
-          require("mbloaty").explain(state)
+          require("mbloaty.tree").explain(state)
         end,
       },
     },

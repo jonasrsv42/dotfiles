@@ -1,0 +1,1503 @@
+{
+  "by": "file",
+  "depth": 2,
+  "groups": [
+    {
+      "blank": 3,
+      "clones": 0,
+      "comment": 0,
+      "crate": "fxcore",
+      "doc": 2,
+      "files": 1,
+      "impl": 80,
+      "largest_fn": {
+        "line": 11,
+        "lines": 71,
+        "name": "plan"
+      },
+      "max_cyclomatic_complexity": {
+        "line": 11,
+        "name": "plan",
+        "value": 25
+      },
+      "max_nesting": {
+        "line": 11,
+        "name": "plan",
+        "value": 7
+      },
+      "name": "core/src/hot.rs",
+      "panic_density": 0.0,
+      "panics": 0,
+      "path": "<ws>/core/src/hot.rs",
+      "smell": {
+        "complexity": 1.0,
+        "dims": [
+          {
+            "culprit": true,
+            "dim": "size",
+            "line": 11,
+            "metric": "largest_fn",
+            "name": "plan",
+            "value": 71
+          },
+          {
+            "dim": "size",
+            "metric": "impl_lines",
+            "value": 80
+          },
+          {
+            "culprit": true,
+            "dim": "complexity",
+            "line": 11,
+            "metric": "cyclomatic_complexity",
+            "name": "plan",
+            "value": 25
+          },
+          {
+            "culprit": true,
+            "dim": "complexity",
+            "line": 11,
+            "metric": "nesting",
+            "name": "plan",
+            "value": 7
+          }
+        ],
+        "fragility": 0.0,
+        "front": 1,
+        "level": "hot",
+        "size": 1.0,
+        "why": "size: largest fn 71 lines (plan), 80 impl lines; complexity: cyclomatic complexity 25 (plan), nesting 7 (plan)"
+      },
+      "test": 0
+    },
+    {
+      "blank": 5,
+      "clones": 0,
+      "comment": 0,
+      "crate": "fxcore",
+      "doc": 3,
+      "files": 1,
+      "impl": 68,
+      "largest_fn": {
+        "line": 24,
+        "lines": 42,
+        "name": "run"
+      },
+      "max_cyclomatic_complexity": {
+        "line": 24,
+        "name": "run",
+        "value": 6
+      },
+      "max_nesting": {
+        "line": 24,
+        "name": "run",
+        "value": 2
+      },
+      "name": "core/src/dispatch.rs",
+      "panic_density": 0.0,
+      "panics": 0,
+      "path": "<ws>/core/src/dispatch.rs",
+      "smell": {
+        "complexity": 0.55,
+        "dims": [
+          {
+            "dim": "size",
+            "excused": {
+              "arms": 6,
+              "kind": "dispatch",
+              "repeat": {
+                "at": [
+                  27,
+                  35,
+                  43,
+                  52
+                ],
+                "count": 4,
+                "statements": 1
+              }
+            },
+            "line": 24,
+            "metric": "largest_fn",
+            "name": "run",
+            "value": 42
+          },
+          {
+            "dim": "complexity",
+            "excused": {
+              "arms": 6,
+              "kind": "dispatch",
+              "repeat": {
+                "at": [
+                  27,
+                  35,
+                  43,
+                  52
+                ],
+                "count": 4,
+                "statements": 1
+              }
+            },
+            "line": 24,
+            "metric": "cyclomatic_complexity",
+            "name": "run",
+            "value": 6
+          }
+        ],
+        "fragility": 0.0,
+        "front": 2,
+        "level": "noted",
+        "size": 0.97,
+        "why": "noted: largest fn 42 lines (run) [dispatch, 6 arms], cyclomatic complexity 6 (run) [dispatch, 6 arms]"
+      },
+      "test": 0
+    },
+    {
+      "blank": 4,
+      "clones": 0,
+      "comment": 0,
+      "crate": "fxcore",
+      "doc": 1,
+      "files": 1,
+      "impl": 57,
+      "largest_fn": {
+        "line": 14,
+        "lines": 43,
+        "name": "routes"
+      },
+      "max_cyclomatic_complexity": {
+        "line": 10,
+        "name": "echo",
+        "value": 1
+      },
+      "max_nesting": {
+        "line": 10,
+        "name": "echo",
+        "value": 0
+      },
+      "name": "core/src/routes.rs",
+      "panic_density": 0.0,
+      "panics": 0,
+      "path": "<ws>/core/src/routes.rs",
+      "smell": {
+        "complexity": 0.1,
+        "dims": [
+          {
+            "dim": "size",
+            "excused": {
+              "entries": 19,
+              "kind": "table"
+            },
+            "line": 14,
+            "metric": "largest_fn",
+            "name": "routes",
+            "value": 43
+          }
+        ],
+        "fragility": 0.0,
+        "front": 3,
+        "level": "noted",
+        "size": 0.93,
+        "why": "noted: largest fn 43 lines (routes) [table, 19 entries]"
+      },
+      "test": 0
+    },
+    {
+      "blank": 5,
+      "clones": 0,
+      "comment": 3,
+      "crate": "fxcore",
+      "doc": 2,
+      "files": 1,
+      "impl": 55,
+      "largest_fn": {
+        "line": 46,
+        "lines": 24,
+        "name": "run_all"
+      },
+      "max_cyclomatic_complexity": {
+        "line": 46,
+        "name": "run_all",
+        "value": 1
+      },
+      "max_nesting": {
+        "line": 46,
+        "name": "run_all",
+        "value": 0
+      },
+      "name": "core/src/lib.rs",
+      "panic_density": 0.0,
+      "panics": 0,
+      "path": "<ws>/core/src/lib.rs",
+      "smell": {
+        "complexity": 0.1,
+        "fragility": 0.0,
+        "front": 4,
+        "level": null,
+        "size": 0.9
+      },
+      "test": 19
+    },
+    {
+      "blank": 2,
+      "clones": 0,
+      "comment": 0,
+      "crate": "fxcore",
+      "doc": 2,
+      "files": 1,
+      "impl": 49,
+      "largest_fn": {
+        "line": 12,
+        "lines": 42,
+        "name": "report"
+      },
+      "max_cyclomatic_complexity": {
+        "line": 12,
+        "name": "report",
+        "value": 1
+      },
+      "max_nesting": {
+        "line": 12,
+        "name": "report",
+        "value": 0
+      },
+      "name": "core/src/allowed.rs",
+      "panic_density": 0.0,
+      "panics": 0,
+      "path": "<ws>/core/src/allowed.rs",
+      "smell": {
+        "complexity": 0.1,
+        "dims": [
+          {
+            "dim": "size",
+            "excused": {
+              "kind": "allowed",
+              "lint": "too_many_lines"
+            },
+            "line": 12,
+            "metric": "largest_fn",
+            "name": "report",
+            "value": 42
+          }
+        ],
+        "fragility": 0.0,
+        "front": 5,
+        "level": "noted",
+        "size": 0.87,
+        "why": "noted: largest fn 42 lines (report) [allows too_many_lines]"
+      },
+      "test": 0
+    },
+    {
+      "blank": 2,
+      "clones": 0,
+      "comment": 0,
+      "crate": "fxcore",
+      "doc": 2,
+      "files": 1,
+      "impl": 43,
+      "largest_fn": {
+        "line": 11,
+        "lines": 37,
+        "name": "apply"
+      },
+      "max_cyclomatic_complexity": {
+        "line": 11,
+        "name": "apply",
+        "value": 12
+      },
+      "max_nesting": {
+        "line": 11,
+        "name": "apply",
+        "value": 5
+      },
+      "name": "core/src/badarm.rs",
+      "panic_density": 0.0,
+      "panics": 0,
+      "path": "<ws>/core/src/badarm.rs",
+      "smell": {
+        "complexity": 0.97,
+        "dims": [
+          {
+            "arm": {
+              "line": 22,
+              "name": "Op::Rebalance",
+              "value": 24
+            },
+            "dim": "size",
+            "line": 11,
+            "metric": "largest_fn",
+            "name": "apply",
+            "value": 28
+          },
+          {
+            "dim": "size",
+            "metric": "impl_lines",
+            "value": 43
+          },
+          {
+            "arm": {
+              "line": 22,
+              "name": "Op::Rebalance",
+              "value": 11
+            },
+            "culprit": true,
+            "dim": "complexity",
+            "line": 11,
+            "metric": "cyclomatic_complexity",
+            "name": "apply",
+            "value": 12
+          },
+          {
+            "arm": {
+              "line": 22,
+              "name": "Op::Rebalance",
+              "value": 4
+            },
+            "culprit": true,
+            "dim": "complexity",
+            "line": 11,
+            "metric": "nesting",
+            "name": "apply",
+            "value": 4
+          }
+        ],
+        "fragility": 0.0,
+        "front": 2,
+        "level": "warm",
+        "size": 0.9,
+        "why": "size: largest fn 28 lines (apply, arm Op::Rebalance), 43 impl lines; complexity: cyclomatic complexity 12 (apply, arm Op::Rebalance), nesting 4 (apply, arm Op::Rebalance)"
+      },
+      "test": 0
+    },
+    {
+      "blank": 2,
+      "clones": 1,
+      "comment": 0,
+      "crate": "fxcore",
+      "doc": 1,
+      "files": 1,
+      "impl": 43,
+      "largest_fn": {
+        "line": 11,
+        "lines": 36,
+        "name": "describe"
+      },
+      "max_cyclomatic_complexity": {
+        "line": 11,
+        "name": "describe",
+        "value": 2
+      },
+      "max_nesting": {
+        "line": 11,
+        "name": "describe",
+        "value": 1
+      },
+      "name": "core/src/long.rs",
+      "panic_density": 0.0,
+      "panics": 0,
+      "path": "<ws>/core/src/long.rs",
+      "smell": {
+        "complexity": 0.55,
+        "fragility": 0.0,
+        "front": 2,
+        "level": null,
+        "size": 0.97
+      },
+      "test": 0
+    },
+    {
+      "blank": 3,
+      "clones": 1,
+      "comment": 0,
+      "crate": "fxapp",
+      "doc": 1,
+      "files": 1,
+      "impl": 38,
+      "largest_fn": {
+        "line": 11,
+        "lines": 32,
+        "name": "main"
+      },
+      "max_cyclomatic_complexity": {
+        "line": 11,
+        "name": "main",
+        "value": 1
+      },
+      "max_nesting": {
+        "line": 11,
+        "name": "main",
+        "value": 1
+      },
+      "name": "app/src/main.rs",
+      "panic_density": 0.0,
+      "panics": 0,
+      "path": "<ws>/app/src/main.rs",
+      "smell": {
+        "complexity": 0.1,
+        "fragility": 0.0,
+        "front": 3,
+        "level": null,
+        "size": 0.93
+      },
+      "test": 0
+    },
+    {
+      "blank": 8,
+      "clones": 0,
+      "comment": 0,
+      "crate": "fxcore",
+      "doc": 1,
+      "files": 1,
+      "impl": 35,
+      "largest_fn": {
+        "line": 18,
+        "lines": 7,
+        "name": "Registry::add"
+      },
+      "max_cyclomatic_complexity": {
+        "line": 18,
+        "name": "Registry::add",
+        "value": 2
+      },
+      "max_nesting": {
+        "line": 18,
+        "name": "Registry::add",
+        "value": 1
+      },
+      "most_panics": {
+        "line": 18,
+        "name": "Registry::add",
+        "sites": [
+          {
+            "col": 9,
+            "kind": "assert!",
+            "line": 19
+          },
+          {
+            "col": 13,
+            "kind": "panic!",
+            "line": 21
+          }
+        ],
+        "value": 2
+      },
+      "name": "core/src/fragile.rs",
+      "panic_density": 20.0,
+      "panics": 7,
+      "path": "<ws>/core/src/fragile.rs",
+      "smell": {
+        "complexity": 0.55,
+        "dims": [
+          {
+            "dim": "fragility",
+            "metric": "panic_density",
+            "panics": 7,
+            "value": 20.0
+          }
+        ],
+        "fragility": 0.9,
+        "front": 1,
+        "level": "hot",
+        "size": 0.73,
+        "why": "fragility: 20.0 panics/100 lines (7 panics)"
+      },
+      "test": 0
+    },
+    {
+      "blank": 1,
+      "clones": 0,
+      "comment": 0,
+      "crate": "fxcore",
+      "doc": 1,
+      "files": 1,
+      "impl": 26,
+      "largest_fn": {
+        "line": 3,
+        "lines": 26,
+        "name": "classify"
+      },
+      "max_cyclomatic_complexity": {
+        "line": 3,
+        "name": "classify",
+        "value": 9
+      },
+      "max_nesting": {
+        "line": 3,
+        "name": "classify",
+        "value": 2
+      },
+      "name": "core/src/branchy.rs",
+      "panics": 0,
+      "path": "<ws>/core/src/branchy.rs",
+      "smell": {
+        "complexity": 0.93,
+        "fragility": 0.0,
+        "front": 3,
+        "level": null,
+        "size": 0.86
+      },
+      "test": 0
+    },
+    {
+      "blank": 5,
+      "clones": 0,
+      "comment": 0,
+      "crate": "fxcore",
+      "doc": 1,
+      "files": 1,
+      "impl": 24,
+      "largest_fn": {
+        "line": 18,
+        "lines": 9,
+        "name": "largest"
+      },
+      "max_cyclomatic_complexity": {
+        "line": 18,
+        "name": "largest",
+        "value": 3
+      },
+      "max_nesting": {
+        "line": 18,
+        "name": "largest",
+        "value": 2
+      },
+      "name": "core/src/shapes.rs",
+      "panics": 0,
+      "path": "<ws>/core/src/shapes.rs",
+      "smell": {
+        "complexity": 0.9,
+        "fragility": 0.0,
+        "front": 4,
+        "level": null,
+        "size": 0.67
+      },
+      "test": 0
+    },
+    {
+      "blank": 1,
+      "clones": 0,
+      "comment": 0,
+      "crate": "fxcore",
+      "doc": 1,
+      "files": 1,
+      "impl": 16,
+      "largest_fn": {
+        "line": 3,
+        "lines": 16,
+        "name": "f9"
+      },
+      "max_cyclomatic_complexity": {
+        "line": 3,
+        "name": "f9",
+        "value": 2
+      },
+      "max_nesting": {
+        "line": 3,
+        "name": "f9",
+        "value": 1
+      },
+      "name": "core/src/f09.rs",
+      "panics": 0,
+      "path": "<ws>/core/src/f09.rs",
+      "smell": {
+        "complexity": 0.55,
+        "fragility": 0.0,
+        "front": 4,
+        "level": null,
+        "size": 0.79
+      },
+      "test": 0
+    },
+    {
+      "blank": 0,
+      "clones": 0,
+      "comment": 1,
+      "crate": "fxcore",
+      "doc": 0,
+      "files": 1,
+      "impl": 15,
+      "largest_fn": {
+        "line": 2,
+        "lines": 15,
+        "name": "main"
+      },
+      "max_cyclomatic_complexity": {
+        "line": 2,
+        "name": "main",
+        "value": 4
+      },
+      "max_nesting": {
+        "line": 2,
+        "name": "main",
+        "value": 2
+      },
+      "most_panics": {
+        "line": 2,
+        "name": "main",
+        "sites": [
+          {
+            "col": 44,
+            "kind": "unwrap",
+            "line": 3
+          },
+          {
+            "col": 42,
+            "kind": "unwrap",
+            "line": 4
+          },
+          {
+            "col": 13,
+            "kind": "assert!",
+            "line": 10
+          }
+        ],
+        "value": 3
+      },
+      "name": "core/build.rs",
+      "panics": 3,
+      "path": "<ws>/core/build.rs",
+      "test": 0
+    },
+    {
+      "blank": 1,
+      "clones": 0,
+      "comment": 0,
+      "crate": "fxcore",
+      "doc": 1,
+      "files": 1,
+      "impl": 15,
+      "largest_fn": {
+        "line": 3,
+        "lines": 15,
+        "name": "f13"
+      },
+      "max_cyclomatic_complexity": {
+        "line": 3,
+        "name": "f13",
+        "value": 2
+      },
+      "max_nesting": {
+        "line": 3,
+        "name": "f13",
+        "value": 1
+      },
+      "name": "core/src/f13.rs",
+      "panics": 0,
+      "path": "<ws>/core/src/f13.rs",
+      "smell": {
+        "complexity": 0.55,
+        "fragility": 0.0,
+        "front": 5,
+        "level": null,
+        "size": 0.74
+      },
+      "test": 0
+    },
+    {
+      "blank": 1,
+      "clones": 0,
+      "comment": 0,
+      "crate": "fxcore",
+      "doc": 1,
+      "files": 1,
+      "impl": 15,
+      "largest_fn": {
+        "line": 3,
+        "lines": 15,
+        "name": "f14"
+      },
+      "max_cyclomatic_complexity": {
+        "line": 3,
+        "name": "f14",
+        "value": 2
+      },
+      "max_nesting": {
+        "line": 3,
+        "name": "f14",
+        "value": 1
+      },
+      "name": "core/src/f14.rs",
+      "panics": 0,
+      "path": "<ws>/core/src/f14.rs",
+      "smell": {
+        "complexity": 0.55,
+        "fragility": 0.0,
+        "front": 5,
+        "level": null,
+        "size": 0.74
+      },
+      "test": 0
+    },
+    {
+      "blank": 1,
+      "clones": 0,
+      "comment": 1,
+      "crate": "fxapp",
+      "doc": 0,
+      "files": 1,
+      "impl": 14,
+      "largest_fn": {
+        "line": 4,
+        "lines": 13,
+        "name": "main"
+      },
+      "max_cyclomatic_complexity": {
+        "line": 4,
+        "name": "main",
+        "value": 3
+      },
+      "max_nesting": {
+        "line": 4,
+        "name": "main",
+        "value": 1
+      },
+      "most_panics": {
+        "line": 4,
+        "name": "main",
+        "sites": [
+          {
+            "col": 5,
+            "kind": "assert_eq!",
+            "line": 11
+          },
+          {
+            "col": 5,
+            "kind": "assert_ne!",
+            "line": 12
+          }
+        ],
+        "value": 2
+      },
+      "name": "app/examples/demo.rs",
+      "panics": 2,
+      "path": "<ws>/app/examples/demo.rs",
+      "test": 0
+    },
+    {
+      "blank": 1,
+      "clones": 0,
+      "comment": 0,
+      "crate": "fxcore",
+      "doc": 1,
+      "files": 1,
+      "impl": 14,
+      "largest_fn": {
+        "line": 3,
+        "lines": 14,
+        "name": "f4"
+      },
+      "max_cyclomatic_complexity": {
+        "line": 3,
+        "name": "f4",
+        "value": 2
+      },
+      "max_nesting": {
+        "line": 3,
+        "name": "f4",
+        "value": 1
+      },
+      "name": "core/src/f04.rs",
+      "panics": 0,
+      "path": "<ws>/core/src/f04.rs",
+      "smell": {
+        "complexity": 0.55,
+        "fragility": 0.0,
+        "front": 6,
+        "level": null,
+        "size": 0.66
+      },
+      "test": 0
+    },
+    {
+      "blank": 1,
+      "clones": 0,
+      "comment": 0,
+      "crate": "fxcore",
+      "doc": 1,
+      "files": 1,
+      "impl": 14,
+      "largest_fn": {
+        "line": 3,
+        "lines": 14,
+        "name": "f17"
+      },
+      "max_cyclomatic_complexity": {
+        "line": 3,
+        "name": "f17",
+        "value": 2
+      },
+      "max_nesting": {
+        "line": 3,
+        "name": "f17",
+        "value": 1
+      },
+      "name": "core/src/f17.rs",
+      "panics": 0,
+      "path": "<ws>/core/src/f17.rs",
+      "smell": {
+        "complexity": 0.55,
+        "fragility": 0.0,
+        "front": 6,
+        "level": null,
+        "size": 0.66
+      },
+      "test": 0
+    },
+    {
+      "blank": 1,
+      "clones": 0,
+      "comment": 0,
+      "crate": "fxcore",
+      "doc": 1,
+      "files": 1,
+      "impl": 14,
+      "largest_fn": {
+        "line": 3,
+        "lines": 14,
+        "name": "f18"
+      },
+      "max_cyclomatic_complexity": {
+        "line": 3,
+        "name": "f18",
+        "value": 2
+      },
+      "max_nesting": {
+        "line": 3,
+        "name": "f18",
+        "value": 1
+      },
+      "name": "core/src/f18.rs",
+      "panics": 0,
+      "path": "<ws>/core/src/f18.rs",
+      "smell": {
+        "complexity": 0.55,
+        "fragility": 0.0,
+        "front": 6,
+        "level": null,
+        "size": 0.66
+      },
+      "test": 0
+    },
+    {
+      "blank": 1,
+      "clones": 0,
+      "comment": 0,
+      "crate": "fxcore",
+      "doc": 1,
+      "files": 1,
+      "impl": 13,
+      "largest_fn": {
+        "line": 3,
+        "lines": 13,
+        "name": "f1"
+      },
+      "max_cyclomatic_complexity": {
+        "line": 3,
+        "name": "f1",
+        "value": 2
+      },
+      "max_nesting": {
+        "line": 3,
+        "name": "f1",
+        "value": 1
+      },
+      "name": "core/src/f01.rs",
+      "panics": 0,
+      "path": "<ws>/core/src/f01.rs",
+      "smell": {
+        "complexity": 0.55,
+        "fragility": 0.0,
+        "front": 7,
+        "level": null,
+        "size": 0.55
+      },
+      "test": 0
+    },
+    {
+      "blank": 1,
+      "clones": 0,
+      "comment": 0,
+      "crate": "fxcore",
+      "doc": 1,
+      "files": 1,
+      "impl": 13,
+      "largest_fn": {
+        "line": 3,
+        "lines": 13,
+        "name": "f2"
+      },
+      "max_cyclomatic_complexity": {
+        "line": 3,
+        "name": "f2",
+        "value": 2
+      },
+      "max_nesting": {
+        "line": 3,
+        "name": "f2",
+        "value": 1
+      },
+      "name": "core/src/f02.rs",
+      "panics": 0,
+      "path": "<ws>/core/src/f02.rs",
+      "smell": {
+        "complexity": 0.55,
+        "fragility": 0.0,
+        "front": 7,
+        "level": null,
+        "size": 0.55
+      },
+      "test": 0
+    },
+    {
+      "blank": 1,
+      "clones": 0,
+      "comment": 0,
+      "crate": "fxcore",
+      "doc": 1,
+      "files": 1,
+      "impl": 13,
+      "largest_fn": {
+        "line": 3,
+        "lines": 13,
+        "name": "f8"
+      },
+      "max_cyclomatic_complexity": {
+        "line": 3,
+        "name": "f8",
+        "value": 2
+      },
+      "max_nesting": {
+        "line": 3,
+        "name": "f8",
+        "value": 1
+      },
+      "name": "core/src/f08.rs",
+      "panics": 0,
+      "path": "<ws>/core/src/f08.rs",
+      "smell": {
+        "complexity": 0.55,
+        "fragility": 0.0,
+        "front": 7,
+        "level": null,
+        "size": 0.55
+      },
+      "test": 0
+    },
+    {
+      "blank": 1,
+      "clones": 0,
+      "comment": 0,
+      "crate": "fxcore",
+      "doc": 1,
+      "files": 1,
+      "impl": 12,
+      "largest_fn": {
+        "line": 3,
+        "lines": 12,
+        "name": "f5"
+      },
+      "max_cyclomatic_complexity": {
+        "line": 3,
+        "name": "f5",
+        "value": 2
+      },
+      "max_nesting": {
+        "line": 3,
+        "name": "f5",
+        "value": 1
+      },
+      "name": "core/src/f05.rs",
+      "panics": 0,
+      "path": "<ws>/core/src/f05.rs",
+      "smell": {
+        "complexity": 0.55,
+        "fragility": 0.0,
+        "front": 8,
+        "level": null,
+        "size": 0.43
+      },
+      "test": 0
+    },
+    {
+      "blank": 1,
+      "clones": 0,
+      "comment": 0,
+      "crate": "fxcore",
+      "doc": 1,
+      "files": 1,
+      "impl": 12,
+      "largest_fn": {
+        "line": 3,
+        "lines": 12,
+        "name": "f6"
+      },
+      "max_cyclomatic_complexity": {
+        "line": 3,
+        "name": "f6",
+        "value": 2
+      },
+      "max_nesting": {
+        "line": 3,
+        "name": "f6",
+        "value": 1
+      },
+      "name": "core/src/f06.rs",
+      "panics": 0,
+      "path": "<ws>/core/src/f06.rs",
+      "smell": {
+        "complexity": 0.55,
+        "fragility": 0.0,
+        "front": 8,
+        "level": null,
+        "size": 0.43
+      },
+      "test": 0
+    },
+    {
+      "blank": 1,
+      "clones": 0,
+      "comment": 0,
+      "crate": "fxcore",
+      "doc": 1,
+      "files": 1,
+      "impl": 12,
+      "largest_fn": {
+        "line": 3,
+        "lines": 12,
+        "name": "f12"
+      },
+      "max_cyclomatic_complexity": {
+        "line": 3,
+        "name": "f12",
+        "value": 2
+      },
+      "max_nesting": {
+        "line": 3,
+        "name": "f12",
+        "value": 1
+      },
+      "name": "core/src/f12.rs",
+      "panics": 0,
+      "path": "<ws>/core/src/f12.rs",
+      "smell": {
+        "complexity": 0.55,
+        "fragility": 0.0,
+        "front": 8,
+        "level": null,
+        "size": 0.43
+      },
+      "test": 0
+    },
+    {
+      "blank": 1,
+      "clones": 0,
+      "comment": 0,
+      "crate": "fxcore",
+      "doc": 1,
+      "files": 1,
+      "impl": 12,
+      "largest_fn": {
+        "line": 3,
+        "lines": 12,
+        "name": "f19"
+      },
+      "max_cyclomatic_complexity": {
+        "line": 3,
+        "name": "f19",
+        "value": 1
+      },
+      "max_nesting": {
+        "line": 3,
+        "name": "f19",
+        "value": 1
+      },
+      "name": "core/src/f19.rs",
+      "panics": 0,
+      "path": "<ws>/core/src/f19.rs",
+      "smell": {
+        "complexity": 0.1,
+        "fragility": 0.0,
+        "front": 9,
+        "level": null,
+        "size": 0.43
+      },
+      "test": 0
+    },
+    {
+      "blank": 1,
+      "clones": 0,
+      "comment": 0,
+      "crate": "fxapp",
+      "doc": 1,
+      "files": 1,
+      "impl": 11,
+      "largest_fn": {
+        "line": 3,
+        "lines": 11,
+        "name": "adler"
+      },
+      "max_cyclomatic_complexity": {
+        "line": 3,
+        "name": "adler",
+        "value": 2
+      },
+      "max_nesting": {
+        "line": 3,
+        "name": "adler",
+        "value": 1
+      },
+      "name": "app/src/dup_b.rs",
+      "panics": 0,
+      "path": "<ws>/app/src/dup_b.rs",
+      "smell": {
+        "complexity": 0.55,
+        "fragility": 0.0,
+        "front": 9,
+        "level": null,
+        "size": 0.28
+      },
+      "test": 0
+    },
+    {
+      "blank": 1,
+      "clones": 0,
+      "comment": 0,
+      "crate": "fxcore",
+      "doc": 1,
+      "files": 1,
+      "impl": 11,
+      "largest_fn": {
+        "line": 3,
+        "lines": 11,
+        "name": "checksum"
+      },
+      "max_cyclomatic_complexity": {
+        "line": 3,
+        "name": "checksum",
+        "value": 2
+      },
+      "max_nesting": {
+        "line": 3,
+        "name": "checksum",
+        "value": 1
+      },
+      "name": "core/src/dup_a.rs",
+      "panics": 0,
+      "path": "<ws>/core/src/dup_a.rs",
+      "smell": {
+        "complexity": 0.55,
+        "fragility": 0.0,
+        "front": 9,
+        "level": null,
+        "size": 0.28
+      },
+      "test": 0
+    },
+    {
+      "blank": 1,
+      "clones": 0,
+      "comment": 0,
+      "crate": "fxcore",
+      "doc": 1,
+      "files": 1,
+      "impl": 11,
+      "largest_fn": {
+        "line": 3,
+        "lines": 11,
+        "name": "f3"
+      },
+      "max_cyclomatic_complexity": {
+        "line": 3,
+        "name": "f3",
+        "value": 1
+      },
+      "max_nesting": {
+        "line": 3,
+        "name": "f3",
+        "value": 1
+      },
+      "name": "core/src/f03.rs",
+      "panics": 0,
+      "path": "<ws>/core/src/f03.rs",
+      "smell": {
+        "complexity": 0.1,
+        "fragility": 0.0,
+        "front": 10,
+        "level": null,
+        "size": 0.28
+      },
+      "test": 0
+    },
+    {
+      "blank": 1,
+      "clones": 0,
+      "comment": 0,
+      "crate": "fxcore",
+      "doc": 1,
+      "files": 1,
+      "impl": 11,
+      "largest_fn": {
+        "line": 3,
+        "lines": 11,
+        "name": "f10"
+      },
+      "max_cyclomatic_complexity": {
+        "line": 3,
+        "name": "f10",
+        "value": 2
+      },
+      "max_nesting": {
+        "line": 3,
+        "name": "f10",
+        "value": 1
+      },
+      "name": "core/src/f10.rs",
+      "panics": 0,
+      "path": "<ws>/core/src/f10.rs",
+      "smell": {
+        "complexity": 0.55,
+        "fragility": 0.0,
+        "front": 9,
+        "level": null,
+        "size": 0.28
+      },
+      "test": 0
+    },
+    {
+      "blank": 1,
+      "clones": 0,
+      "comment": 0,
+      "crate": "fxcore",
+      "doc": 1,
+      "files": 1,
+      "impl": 11,
+      "largest_fn": {
+        "line": 3,
+        "lines": 11,
+        "name": "f16"
+      },
+      "max_cyclomatic_complexity": {
+        "line": 3,
+        "name": "f16",
+        "value": 2
+      },
+      "max_nesting": {
+        "line": 3,
+        "name": "f16",
+        "value": 1
+      },
+      "name": "core/src/f16.rs",
+      "panics": 0,
+      "path": "<ws>/core/src/f16.rs",
+      "smell": {
+        "complexity": 0.55,
+        "fragility": 0.0,
+        "front": 9,
+        "level": null,
+        "size": 0.28
+      },
+      "test": 0
+    },
+    {
+      "blank": 1,
+      "clones": 0,
+      "comment": 0,
+      "crate": "fxcore",
+      "doc": 1,
+      "files": 1,
+      "impl": 10,
+      "largest_fn": {
+        "line": 3,
+        "lines": 10,
+        "name": "f7"
+      },
+      "max_cyclomatic_complexity": {
+        "line": 3,
+        "name": "f7",
+        "value": 1
+      },
+      "max_nesting": {
+        "line": 3,
+        "name": "f7",
+        "value": 1
+      },
+      "name": "core/src/f07.rs",
+      "panics": 0,
+      "path": "<ws>/core/src/f07.rs",
+      "smell": {
+        "complexity": 0.1,
+        "fragility": 0.0,
+        "front": 11,
+        "level": null,
+        "size": 0.16
+      },
+      "test": 0
+    },
+    {
+      "blank": 1,
+      "clones": 0,
+      "comment": 0,
+      "crate": "fxcore",
+      "doc": 1,
+      "files": 1,
+      "impl": 10,
+      "largest_fn": {
+        "line": 3,
+        "lines": 10,
+        "name": "f20"
+      },
+      "max_cyclomatic_complexity": {
+        "line": 3,
+        "name": "f20",
+        "value": 2
+      },
+      "max_nesting": {
+        "line": 3,
+        "name": "f20",
+        "value": 1
+      },
+      "name": "core/src/f20.rs",
+      "panics": 0,
+      "path": "<ws>/core/src/f20.rs",
+      "smell": {
+        "complexity": 0.55,
+        "fragility": 0.0,
+        "front": 10,
+        "level": null,
+        "size": 0.16
+      },
+      "test": 0
+    },
+    {
+      "blank": 1,
+      "clones": 0,
+      "comment": 0,
+      "crate": "fxcore",
+      "doc": 1,
+      "files": 1,
+      "impl": 9,
+      "largest_fn": {
+        "line": 3,
+        "lines": 9,
+        "name": "f11"
+      },
+      "max_cyclomatic_complexity": {
+        "line": 3,
+        "name": "f11",
+        "value": 1
+      },
+      "max_nesting": {
+        "line": 3,
+        "name": "f11",
+        "value": 1
+      },
+      "name": "core/src/f11.rs",
+      "panics": 0,
+      "path": "<ws>/core/src/f11.rs",
+      "test": 0
+    },
+    {
+      "blank": 1,
+      "clones": 0,
+      "comment": 0,
+      "crate": "fxcore",
+      "doc": 1,
+      "files": 1,
+      "impl": 8,
+      "largest_fn": {
+        "line": 3,
+        "lines": 8,
+        "name": "f15"
+      },
+      "max_cyclomatic_complexity": {
+        "line": 3,
+        "name": "f15",
+        "value": 1
+      },
+      "max_nesting": {
+        "line": 3,
+        "name": "f15",
+        "value": 1
+      },
+      "name": "core/src/f15.rs",
+      "panics": 0,
+      "path": "<ws>/core/src/f15.rs",
+      "test": 0
+    },
+    {
+      "blank": 1,
+      "clones": 1,
+      "comment": 0,
+      "crate": "fxcore",
+      "doc": 1,
+      "files": 1,
+      "impl": 5,
+      "largest_fn": {
+        "line": 3,
+        "lines": 5,
+        "name": "label"
+      },
+      "max_cyclomatic_complexity": {
+        "line": 3,
+        "name": "label",
+        "value": 1
+      },
+      "max_nesting": {
+        "line": 3,
+        "name": "label",
+        "value": 0
+      },
+      "name": "core/src/shared.rs",
+      "panics": 0,
+      "path": "<ws>/core/src/shared.rs",
+      "test": 0
+    },
+    {
+      "blank": 0,
+      "comment": 1,
+      "crate": "fxcore",
+      "doc": 0,
+      "files": 1,
+      "impl": 0,
+      "name": "core/src/testing/data.rs",
+      "path": "<ws>/core/src/testing/data.rs",
+      "test": 1
+    },
+    {
+      "blank": 1,
+      "comment": 1,
+      "crate": "fxcore",
+      "doc": 0,
+      "files": 1,
+      "impl": 0,
+      "name": "core/src/testing/support.rs",
+      "path": "<ws>/core/src/testing/support.rs",
+      "test": 4
+    },
+    {
+      "blank": 1,
+      "comment": 1,
+      "crate": "fxcore",
+      "doc": 0,
+      "files": 1,
+      "impl": 0,
+      "name": "core/tests/it.rs",
+      "path": "<ws>/core/tests/it.rs",
+      "test": 11
+    }
+  ],
+  "hidden": 0,
+  "root": "<ws>",
+  "schema": 3,
+  "sort": "impl",
+  "test_features": [],
+  "total": {
+    "blank": 66,
+    "comment": 8,
+    "doc": 40,
+    "files": 39,
+    "impl": 819,
+    "name": "total",
+    "test": 35
+  }
+}

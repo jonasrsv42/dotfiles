@@ -1,0 +1,115 @@
+{
+  "findings": [
+    {
+      "category": "impl",
+      "copies": [
+        {
+          "crate": "fxapp",
+          "end_line": 13,
+          "file": "app/src/dup_b.rs",
+          "line": 3,
+          "name": "adler",
+          "path": "<ws>/app/src/dup_b.rs",
+          "start_line": 3
+        },
+        {
+          "crate": "fxcore",
+          "end_line": 13,
+          "file": "core/src/dup_a.rs",
+          "line": 3,
+          "name": "checksum",
+          "path": "<ws>/core/src/dup_a.rs",
+          "start_line": 3
+        }
+      ],
+      "crate": "fxapp",
+      "detail": "2 identical bodies; spans crates (needs a shared dependency); up to ~11 lines saved",
+      "end_line": 13,
+      "file": "app/src/dup_b.rs",
+      "identical": true,
+      "kind": "duplicate",
+      "line": 3,
+      "lines": 11,
+      "lines_saved": 11,
+      "name": "adler",
+      "path": "<ws>/app/src/dup_b.rs",
+      "start_line": 3
+    },
+    {
+      "category": "impl",
+      "crate": "fxcore",
+      "detail": "no references",
+      "end_line": 30,
+      "file": "core/src/shapes.rs",
+      "kind": "unused",
+      "line": 28,
+      "lines": 3,
+      "name": "never_called",
+      "path": "<ws>/core/src/shapes.rs",
+      "refs": 0,
+      "start_line": 28,
+      "test_refs": 0,
+      "vis": "public"
+    },
+    {
+      "category": "impl",
+      "crate": "fxcore",
+      "detail": "only impl: Square",
+      "end_line": 8,
+      "file": "core/src/shapes.rs",
+      "impls": [
+        {
+          "crate": "fxcore",
+          "end_line": 16,
+          "file": "core/src/shapes.rs",
+          "line": 12,
+          "name": "Square",
+          "path": "<ws>/core/src/shapes.rs",
+          "start_line": 12
+        }
+      ],
+      "kind": "single_impl_trait",
+      "line": 3,
+      "lines": 6,
+      "name": "Area",
+      "path": "<ws>/core/src/shapes.rs",
+      "refs": 1,
+      "start_line": 3,
+      "test_refs": 0,
+      "vis": "public"
+    },
+    {
+      "category": "impl",
+      "crate": "fxcore",
+      "detail": "71 own code lines",
+      "end_line": 81,
+      "file": "core/src/hot.rs",
+      "kind": "long_fn",
+      "line": 11,
+      "lines": 71,
+      "name": "plan",
+      "path": "<ws>/core/src/hot.rs",
+      "start_line": 10
+    }
+  ],
+  "hidden_pub": 0,
+  "root": "<ws>",
+  "schema": 3,
+  "shown": {
+    "duplicate": 1,
+    "long_fn": 1,
+    "single_impl_trait": 1,
+    "unused": 1
+  },
+  "test_features": [],
+  "thresholds": {
+    "long_fn": 50,
+    "min_dup": 8
+  },
+  "totals": {
+    "duplicate": 1,
+    "long_fn": 1,
+    "single_impl_trait": 1,
+    "unused": 1
+  }
+}

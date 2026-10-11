@@ -1,9 +1,14 @@
 //! bloaty: where does the code in a Rust project live, and where is it bloated?
 
 mod findings;
+mod fnmetrics;
 mod lines;
+mod measure;
 mod metrics;
+mod names;
+mod rollup;
 mod scan;
+mod shape;
 mod smell;
 mod summary;
 #[cfg(test)]
@@ -20,27 +25,7 @@ use summary::{GroupBy, SortBy};
 #[command(
     version,
     about = "Where does the code in a Rust project live, and where is it bloated?",
-    long_about = "Where does the code in a Rust project live, and where is it bloated?
-
-Workflow: `bloaty summary` to see where the code is, drill in with
-`--by module --depth N` or a PATH, then `bloaty findings PATH --json` (or
-`--kind duplicate` etc.) for ranked places to cut, and `bloaty metrics PATH`
-for per-fn complexity, nesting and panic sites. Findings are hints: check
-each one, and compile after removing anything.
-
-The crates around PATH are analysed together with every crate linked to them
-(same workspace, or path/patch dependencies either way), so test code and
-cross-crate uses are seen; output is narrowed to PATH. Unrelated crates in
-the same repository are left out.
-
-Test code is anything under tests/ or benches/, behind a cfg that implies test
-(cfg(test), all(test, ..), any(test, feature = \"testdb\"), any(test, doc),
-#![cfg(test)], and loom/fuzzing builds), a #[test]-style fn, or a module
-declared from test code. Cargo features named like test/testing/test-utils/
-testdb/mock/fake count as test-only; adjust with --test-feature /
---no-test-feature.
-
-Files ignored by .gitignore and cargo target dirs are skipped."
+    long_about = include_str!("help/main.txt").trim_end()
 )]
 struct Cli {
     #[command(subcommand)]
@@ -58,7 +43,8 @@ struct Common {
     /// Don't treat this auto-detected feature like cfg(test) (repeatable).
     #[arg(long = "no-test-feature", value_name = "FEATURE")]
     no_test_features: Vec<String>,
-    /// Machine-readable output.
+    /// Machine-readable output. Its first field, `schema`, is the format
+    /// version (currently 3), bumped when fields change.
     #[arg(long)]
     json: bool,
     /// List every file that couldn't be read or fully analysed.
@@ -70,29 +56,7 @@ struct Common {
 enum Cmd {
     /// Code lines split into implementation, test, doc and comment.
     #[command(
-        long_about = "Code lines split into implementation, test, doc and comment.
-
-With --by file, JSON groups also carry the file's non-test fn metrics (see
-`bloaty metrics`): `largest_fn` {name, line, lines}, `max_complexity` and
-`max_nesting` {name, line, value}, `most_panics` {name, line, value, sites}
-(the fn with the most panic sites and where they are, as in `bloaty metrics`;
-absent without panics), `panics`, `clones`, and `panic_density` (panic sites
-per 100 impl lines, only from 30 impl lines). Fn fields are absent without
-fns; all are absent for whole-test files.
-
-They also carry `smell` (files with >= 10 impl lines and a fn, not
-whole-test, build script or example), ranked against every such file in the
-linked workspace, so PATH doesn't change it: `size`, `complexity` and
-`fragility` as percentiles (largest fn or impl lines; cyclomatic
-complexity, or nesting from 4; panic density of files with >= 2 panics, >= 30 impl lines and >= 1 per 100,
-fixed bands 0.9/0.75/0.5 at >= 3/1.5/1 per 100 when under 5 files qualify;
-a zero signal is 0), `front` (Pareto front on those three, 1 = nothing is
-worse on all) and `level`: \"hot\" for the first files walking the fronts
-with a dimension >= 0.9 (at most 5% of files), \"warm\" for the next by sum
-with one >= 0.75 (at most 10% more, none under 20 files), else null. Either
-level needs a fn of >= 40 lines, cyclomatic complexity >= 10, nesting
->= 4 or the panic density above. Levelled files have `why`: the dimensions behind it with
-raw numbers. Text marks hot !! and warm !."
+        long_about = include_str!("help/summary.txt").trim_end()
     )]
     Summary {
         #[command(flatten)]
@@ -116,53 +80,7 @@ raw numbers. Text marks hot !! and warm !."
     },
     /// Ranked hints of bloat: where to look, not what to delete.
     #[command(
-        long_about = "Ranked hints of bloat: where to look, not what to delete.
-
-Kinds, in the order worth working through:
-  duplicate          fns with identical bodies (or, for long ones, the same
-                     shape with different names): extract one helper.
-                     `identical` says which; copies across crates need a
-                     shared dependency.
-  unused             fns/types/traits nothing references, or only tests
-                     (incl. doctests) do. Name-based, so verify: after
-                     removing, run `cargo check --workspace --all-targets
-                     --all-features` (or the project's usual feature sets)
-                     and `cargo test --doc`, then re-run bloaty (removals can
-                     expose more). Code only built under cfg(loom)/fuzzing
-                     counts as a use. `uncertain: true` marks crates with
-                     code bloaty can't see.
-  single-impl-trait  traits with at most one impl (derives and impls in other
-                     workspace crates count; blanket/macro impls and extension
-                     traits on foreign types are exempt). Fine as a mocking or
-                     plugin boundary; otherwise inline.
-  long-fn            more than --long-fn own code lines (nested items excluded).
-  test-heavy         files whose inline tests are >3x their code (and >= 200):
-                     look for repeated setup to share and cases to merge
-                     into table-driven tests.
-  pass-through       (only with --kind pass-through) private-ish fns whose
-                     body is one call passing their inputs to another
-                     workspace fn. Mostly a judgement call.
-
-Within a kind, impl code ranks before test code and private before pub.
-`category` says impl or test. `lines` counts code lines: the item's own
-(plus its impl blocks for unused types), the largest copy for duplicates,
-test lines for test-heavy. `lines_saved` is at most what keeping one copy
-saves.
-
-JSON per finding: `path` (absolute) and `file` (relative to `root`), `line`
-(the name, to jump to), `start_line`..=`end_line` (the whole item with docs
-and attributes, to delete), `crate`, and for some kinds `impls`/`copies`
-with the same fields (`copies[0]` is the finding itself). `totals` per kind
-say what --top cut.
-
-`pub` items of publishable libraries (anything not `publish = false`) are
-left out of unused, single-impl-trait and pass-through, since code outside
-the repository may use them: `hidden_pub` counts them. Mark internal crates
-`publish = false` (or `publish.workspace = true` with the workspace's
-`publish = false`) to have them checked, or pass --include-pub.
-
-The JSON report also has `root`, `thresholds`, `test_features`, `totals` and
-`shown` per kind (what --top kept)."
+        long_about = include_str!("help/findings.txt").trim_end()
     )]
     Findings {
         #[command(flatten)]
@@ -187,34 +105,9 @@ The JSON report also has `root`, `thresholds`, `test_features`, `totals` and
         #[arg(long)]
         include_pub: bool,
     },
-    /// Per-fn complexity, nesting, parameters, panic sites and clones.
+    /// Per-fn cyclomatic complexity, nesting, parameters, panic sites and clones.
     #[command(
-        long_about = "Per-fn complexity, nesting, parameters, panic sites and clones.
-
-Every non-test fn (free, inherent, trait impl or default) in PATH. Closures
-count toward their fn; fns nested in a body are measured on their own.
-  lines       own code lines (nested items excluded)
-  complexity  1 + each if / else if, match (once, whatever its arms),
-              while/for/loop, && / ||, let-else; ? adds nothing
-  nesting     deepest if/match/loop/closure/let-else/block ({ }, unsafe,
-              async, const) inside the body (0 for straight-line code;
-              else-if, match guards and a construct's own { } don't add a
-              level)
-  params      parameters, self excluded
-  panics      .unwrap(), .expect(x) (not .expect(x)?), panic!,
-              unreachable!, todo!, unimplemented!, assert!, assert_eq!,
-              assert_ne! (debug_assert* compile out, so don't count)
-  clones      .clone() calls
-Macro arguments that parse as comma-separated expressions (format!, vec!,
-assert!, ...) count like code; others (tokio::select!, items in a body) are
-only scanned for panics and clones.
-
-Text: the --top most complex fns, as file:line and name. JSON: `root` and
-`functions`, every fn by file and line (--top doesn't apply), each with
-`name`, `file` (relative to root), `path` (absolute), `start_line`, `line`,
-`end_line`, `crate`, the numbers above and `panic_sites` [{line, col, kind}]
-(one per panic, in source order; col 1-based; kind `unwrap`, `expect` or the
-macro with its `!`, like `assert_eq!`)."
+        long_about = include_str!("help/metrics.txt").trim_end()
     )]
     Metrics {
         #[command(flatten)]
@@ -378,14 +271,134 @@ fn run(max_depth: usize) -> i32 {
     }
 }
 
+/// Version of the `--json` output, its first field `schema`. Bumped when a
+/// field consumers rely on changes or appears (the Neovim integration
+/// refuses older output rather than misread it).
+const SCHEMA: u32 = 3;
+
+#[derive(serde::Serialize)]
+struct Versioned<'a, T> {
+    schema: u32,
+    #[serde(flatten)]
+    body: &'a T,
+}
+
 fn to_json(v: &impl serde::Serialize) -> String {
-    serde_json::to_string_pretty(v).expect("serializable") + "\n"
+    let v = Versioned {
+        schema: SCHEMA,
+        body: v,
+    };
+    serde_json::to_string_pretty(&v).expect("serializable") + "\n"
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use clap::CommandFactory;
+
+    /// The help text states each threshold as the code has it.
+    #[test]
+    fn help_states_the_thresholds() {
+        use crate::measure::Measure::{CyclomaticComplexity as Cc, Lines, Nesting};
+        use crate::{shape, smell};
+        let flat = |t: &str| t.split_whitespace().collect::<Vec<_>>().join(" ");
+        let summary = flat(include_str!("help/summary.txt"));
+        let metrics = flat(include_str!("help/metrics.txt"));
+        let pct = |share: f64| (share * 100.0).round() as u32;
+        for (text, phrase) in [
+            (
+                &summary,
+                format!(">= {} impl lines and a fn", smell::MIN_IMPL_LINES),
+            ),
+            (&summary, format!("nesting from {}", Nesting.bar())),
+            (
+                &summary,
+                format!(
+                    "a dimension >= {} (at most {}% of files)",
+                    smell::HOT_DIM,
+                    pct(smell::HOT_SHARE)
+                ),
+            ),
+            (
+                &summary,
+                format!(
+                    "one >= {} (at most {}% more, none under {} files)",
+                    smell::WARM_DIM,
+                    pct(smell::WARM_SHARE),
+                    smell::MIN_FILES_FOR_WARM
+                ),
+            ),
+            (
+                &summary,
+                format!(
+                    "a fn of >= {} lines, cyclomatic complexity >= {}, nesting >= {}",
+                    Lines.bar(),
+                    Cc.bar(),
+                    Nesting.bar()
+                ),
+            ),
+            (
+                &summary,
+                format!(
+                    "from {} lines or cyclomatic complexity {} the allow is ignored",
+                    Lines.allow_ceiling(),
+                    Cc.allow_ceiling(),
+                ),
+            ),
+            (
+                &summary,
+                format!(
+                    "small arms (<= {} code lines and cyclomatic complexity <= {}",
+                    shape::SMALL_ARM_LINES,
+                    shape::SMALL_ARM_COMPLEXITY
+                ),
+            ),
+            (
+                &metrics,
+                format!("No entry may exceed {} code lines", shape::SMALL_ARM_LINES),
+            ),
+            (
+                &summary,
+                format!(
+                    "arm of >= {} lines, cyclomatic complexity >= {} or nesting >= {}",
+                    Lines.bad_arm(),
+                    Cc.bad_arm(),
+                    Nesting.bad_arm()
+                ),
+            ),
+            (
+                &summary,
+                format!("at least {} tokens", shape::MIN_PRELUDE_TOKENS),
+            ),
+            (
+                &summary,
+                format!("the first {} copies", shape::MAX_PRELUDE_AT),
+            ),
+            (
+                &metrics,
+                format!("after at most {} lets", shape::MAX_LEAD_STMTS),
+            ),
+            (
+                &metrics,
+                format!(
+                    ">= {} simple entries spanning >= {} code lines",
+                    shape::MIN_ENTRIES,
+                    shape::MIN_ENTRIES
+                ),
+            ),
+            (
+                &metrics,
+                format!(
+                    ">= {} arms whose median arm (the upper one) has <= {} code lines and cyclomatic complexity <= {}",
+                    shape::MIN_ARMS,
+                    shape::SMALL_ARM_LINES,
+                    shape::SMALL_ARM_COMPLEXITY
+                ),
+            ),
+        ] {
+            assert!(text.contains(&phrase), "help text lacks: {phrase}");
+        }
+    }
 
     #[test]
     fn cli_is_consistent_and_accepts_json_kind_names() {

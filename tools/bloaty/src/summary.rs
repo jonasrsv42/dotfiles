@@ -1,8 +1,7 @@
 //! Line counts split into implementation, test, doc and comment, grouped by
 //! crate, module (path within the crate, cut at --depth) or file.
 
-use crate::lines::LineClass;
-use crate::metrics::{FileMetrics, file_metrics};
+use crate::rollup::{FileMetrics, file_metrics};
 use crate::scan::{FileAnalysis, Scan};
 use crate::smell::{self, Level, Smell};
 use serde::Serialize;
@@ -77,20 +76,16 @@ impl Counts {
 }
 
 pub fn file_counts(f: &FileAnalysis) -> Counts {
-    let mut c = Counts {
+    let c = f.counts();
+    Counts {
         files: 1,
+        implementation: c.implementation,
+        test: c.test,
+        doc: c.doc,
+        comment: c.comment,
+        blank: c.blank,
         ..Default::default()
-    };
-    for (i, class) in f.lines.iter().enumerate() {
-        match class {
-            LineClass::Code if f.is_test_line(i) => c.test += 1,
-            LineClass::Code => c.implementation += 1,
-            LineClass::Doc => c.doc += 1,
-            LineClass::Comment => c.comment += 1,
-            LineClass::Blank => c.blank += 1,
-        }
     }
-    c
 }
 
 #[derive(Serialize)]
@@ -243,6 +238,7 @@ pub fn render(s: &Summary) -> String {
         let mark = match r.smell.as_ref().and_then(|s| s.level) {
             Some(Level::Hot) => "  !!",
             Some(Level::Warm) => "  !",
+            Some(Level::Noted) => "  ~",
             None => "",
         };
         let _ = writeln!(
@@ -270,7 +266,7 @@ pub fn render(s: &Summary) -> String {
     {
         let _ = writeln!(
             out,
-            "\n!! hot, ! warm: the project's largest, most complex or most panicky files (--json says why)"
+            "\n!! hot, ! warm: the project's largest, most complex or most panicky files; ~ noted: only\nbecause of tables, dispatches or allowed clippy lints (--json says why)"
         );
     }
     if !s.test_features.is_empty() {

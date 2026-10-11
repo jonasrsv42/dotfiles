@@ -1,0 +1,4 @@
+# The fixtures are deliberately bloated sample projects for bloaty's own
+# tests (which copy them out first): keep them out of every scan of this
+# repository, so they neither show up in nor skew bloaty's view of itself.
+*

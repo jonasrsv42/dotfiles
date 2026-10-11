@@ -1,0 +1,54 @@
+Per-fn cyclomatic complexity, nesting, parameters, panic sites and clones.
+
+Every non-test fn (free, inherent, trait impl or default) in PATH. Closures
+count toward their fn; fns nested in a body are measured on their own.
+  lines       own code lines (nested items excluded)
+  cyclomatic_complexity
+              1 + each if / else if, match (once, whatever its arms),
+              while/for/loop, && / ||, let-else; ? adds nothing
+  nesting     deepest if/match/loop/closure/let-else/block ({ }, unsafe,
+              async, const) inside the body (0 for straight-line code;
+              else-if, match guards and a construct's own { } don't add a
+              level)
+  params      parameters, self excluded
+  panics      .unwrap(), .expect(x) (not .expect(x)?), panic!,
+              unreachable!, todo!, unimplemented!, assert!, assert_eq!,
+              assert_ne! (debug_assert* compile out, so don't count)
+  clones      .clone() calls
+Macro arguments that parse as comma-separated expressions (format!, vec!,
+assert!, ...) count like code; others (tokio::select!, items in a body) are
+only scanned for panics and clones.
+
+Text: the --top most complex fns, as file:line and name. JSON: `root` and
+`functions`, every fn by file and line (--top doesn't apply), each with
+`name`, `file` (relative to root), `path` (absolute), `start_line`, `line`,
+`end_line`, `crate`, the numbers above and `panic_sites` [{line, col, kind}]
+(one per panic, in source order; col 1-based; kind `unwrap`, `expect` or the
+macro with its `!`, like `assert_eq!`).
+
+Fns with a shape have `shape`:
+- {kind: "table", entries, lines} when the body ends (after at most 2
+  lets) in one literal list of >= 4 simple entries spanning >= 4 code
+  lines: vec!/array/struct literal, or a match whose arms are simple (its
+  arms are the literal, not its scrutinee). Simple: literals, paths,
+  calls, constructors, tuples of those, and macros whose arguments are
+  (or, unparsed, whose tokens hold no { } block, `;`, `&&`/`||` or
+  control-flow keyword). No entry may exceed 12 code lines, and the
+  literal may add no cyclomatic complexity. `lines`: the literal's code
+  lines, which the smell score excuses.
+- {kind: "dispatch", arms, remainder {lines, cyclomatic_complexity,
+  nesting}, counted {arms, lines, cyclomatic_complexity}, worst {lines?,
+  cyclomatic_complexity?, nesting?: {name, line, value}}, repeat?} when it
+  ends (after at most 2 lets) in a match, or `Ok(match ..)` and the like,
+  of >= 4 arms whose median arm (the upper one) has <= 12 code lines and
+  cyclomatic complexity <= 3 (in its body: the pattern aside): a match of bigger arms is just a long fn.
+  Each arm is measured like a fn; `remainder` is the fn without the arms;
+  `counted` sums the arms that aren't small (they count, see `bloaty
+  summary`); `worst` names the arm the score blames by each measure: the
+  worst counted arm by lines and cyclomatic complexity (absent when all
+  are small), the deepest arm by nesting (the first on ties); `repeat` as
+  in `bloaty summary`.
+`allowed`: ["too_many_lines" | "cognitive_complexity"] from
+#[allow(clippy::..)] / #[expect(clippy::..)] on the fn (also inside
+#[cfg_attr(..)] unless its condition is `any()`). Text tags such fns [table · N entries], [dispatch · N
+arms], [allows LINT].

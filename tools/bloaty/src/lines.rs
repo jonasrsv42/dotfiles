@@ -474,6 +474,17 @@ impl Lexer {
     }
 }
 
+/// A file's lines by class, test code apart.
+#[derive(Clone, Copy, Default, Debug)]
+pub struct LineCounts {
+    /// Non-test code lines.
+    pub implementation: usize,
+    pub test: usize,
+    pub doc: usize,
+    pub comment: usize,
+    pub blank: usize,
+}
+
 #[cfg(test)]
 mod tests {
     use super::LineClass::*;

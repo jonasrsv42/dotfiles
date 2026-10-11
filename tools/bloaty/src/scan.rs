@@ -4,8 +4,9 @@
 //! out which files are test code. Reports narrow to the requested paths, but
 //! classification and cross-file matching always see the whole workspace.
 
-use crate::lines::{self, LineClass};
-use crate::visit::{self, Ctx, FileFacts, FnFact};
+use crate::lines::{self, LineClass, LineCounts};
+use crate::shape;
+use crate::visit::{self, Ctx, FileFacts, FnFact, ModDecl};
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Component, Path, PathBuf};
@@ -117,11 +118,23 @@ impl FileAnalysis {
     }
 
     /// Code lines in a 1-based inclusive range.
+    /// The file's lines by class, test code apart.
+    pub fn counts(&self) -> LineCounts {
+        let mut c = LineCounts::default();
+        for (i, class) in self.lines.iter().enumerate() {
+            match class {
+                LineClass::Code if self.is_test_line(i) => c.test += 1,
+                LineClass::Code => c.implementation += 1,
+                LineClass::Doc => c.doc += 1,
+                LineClass::Comment => c.comment += 1,
+                LineClass::Blank => c.blank += 1,
+            }
+        }
+        c
+    }
+
     pub fn code_lines(&self, start: usize, end: usize) -> usize {
-        let end = end.min(self.lines.len());
-        (start.max(1)..=end)
-            .filter(|&l| self.lines[l - 1] == LineClass::Code)
-            .count()
+        code_lines(&self.lines, start, end)
     }
 
     /// Code lines of a fn, minus items nested in its body (counted on
@@ -482,6 +495,14 @@ fn glob_match(glob: &str, rel: &Path) -> bool {
     walk(&glob, &rel)
 }
 
+/// Code lines among 1-based lines `start..=end`.
+fn code_lines(lines: &[LineClass], start: usize, end: usize) -> usize {
+    let end = end.min(lines.len());
+    (start.max(1)..=end)
+        .filter(|&l| lines[l - 1] == LineClass::Code)
+        .count()
+}
+
 /// The git repository root above `path` (if `git`); without one, the
 /// outermost directory with a Cargo.toml; without that, `path` (or its
 /// directory). Crates in the same repository see each other even without a
@@ -514,6 +535,11 @@ fn walk(root: &Path) -> Walked {
     let found = Mutex::new((Vec::new(), Vec::new(), Vec::new()));
     ignore::WalkBuilder::new(root)
         .require_git(false) // honour .gitignore even outside a git checkout
+        // gitignore syntax, for code only bloaty should skip (test fixtures).
+        .add_custom_ignore_filename(".bloatyignore")
+        // Only ignore files inside the workspace: what a parent directory
+        // (a home directory dotfile repo, say) ignores is not its business.
+        .parents(false)
         .threads(rayon::current_num_threads())
         .filter_entry(|e| !(e.file_type().is_some_and(|t| t.is_dir()) && is_target_dir(e.path())))
         .build_parallel()
@@ -860,6 +886,10 @@ fn analyse(
         }
     }
     let lines = classified.lines;
+    // Shapes need code lines: dispatches of big arms aren't dispatches.
+    for func in &mut facts.fns {
+        shape::settle(&mut func.shape, |s, e| code_lines(&lines, s, e));
+    }
     let mut test_mask = vec![false; lines.len()];
     let mut ranges = facts.test_ranges.clone();
     ranges.sort_unstable();
@@ -928,107 +958,163 @@ fn normalize(path: &Path) -> PathBuf {
 /// from somewhere we can't see) fall back to their path: under the crate's
 /// tests/ or benches/ means test. Their own declarations still propagate.
 fn resolve_modules(files: &mut [FileAnalysis], crates: &[Crate]) {
-    let index: HashMap<PathBuf, usize> = files
-        .iter()
-        .enumerate()
-        .map(|(i, f)| (f.path.clone(), i))
-        .collect();
-    // Reached from non-test code anywhere wins: such a file is not test code.
-    let mut reached: HashMap<usize, bool> = HashMap::new();
-    // Files with a `mod x;` whose file wasn't found.
-    let mut unresolved = HashSet::new();
-    // Reached as test code the recommended check doesn't build (`loom`).
-    let mut unchecked = HashSet::new();
-    // (file, reached from test code, behaves like mod.rs for its children,
-    // that test code is unchecked)
-    let mut walk = |queue: &mut VecDeque<(usize, bool, bool, bool)>,
-                    reached: &mut HashMap<usize, bool>| {
-        while let Some((i, test, mod_rs, off)) = queue.pop_front() {
-            let facts = &files[i].facts;
-            let off = (test && off) || (facts.file_test && !facts.file_checked);
-            let test = test || facts.file_test;
-            if test && off {
-                unchecked.insert(i);
-            }
-            if let Some(&prev) = reached.get(&i)
-                && (!prev || prev == test)
-            {
-                continue;
-            }
-            reached.insert(i, test);
-            let path = &files[i].path;
-            let Some(dir) = path.parent() else { continue };
-            let is_mod_rs = mod_rs || path.file_name().is_some_and(|n| n == "mod.rs");
-            let base = if is_mod_rs {
-                dir.to_path_buf()
-            } else {
-                dir.join(path.file_stem().unwrap_or_default())
-            };
-            for d in &files[i].facts.mod_decls {
-                let mut child_dir = base.clone();
-                child_dir.extend(&d.inline_path);
-                let lookup = |p: PathBuf| index.get(&normalize(&p)).copied();
-                let found = match &d.path_attr {
-                    // Relative to the file's own directory outside inline modules.
-                    Some(p) if d.inline_path.is_empty() => lookup(dir.join(p)).map(|c| (c, true)),
-                    Some(p) => lookup(child_dir.join(p)).map(|c| (c, true)),
-                    None => lookup(child_dir.join(format!("{}.rs", d.name)))
-                        .map(|c| (c, false))
-                        .or_else(|| {
-                            lookup(child_dir.join(&d.name).join("mod.rs")).map(|c| (c, true))
-                        }),
-                };
-                match found {
-                    Some((c, child_mod_rs)) => {
-                        let child_off = (test && off) || (d.test && !d.checked);
-                        queue.push_back((c, test || d.test, child_mod_rs, child_off));
-                    }
-                    None => {
-                        unresolved.insert(i);
-                    }
-                }
-            }
-        }
-    };
-
-    let mut queue = VecDeque::new();
+    let mut w = ModWalk::new(files);
     for c in crates {
         for (roots, test) in [(&c.roots, false), (&c.test_roots, true)] {
             for r in roots {
-                if let Some(&i) = index.get(r) {
-                    queue.push_back((i, test, true, false));
+                if let Some(&i) = w.index.get(r) {
+                    w.push(i, test, true, false);
                 }
             }
         }
     }
-    walk(&mut queue, &mut reached);
-    let compiled: HashSet<usize> = reached.keys().copied().collect();
+    w.run();
+    let compiled: HashSet<usize> = w.reached.keys().copied().collect();
 
     // Unreached files, shallowest first so a parent seeds its children.
     let mut orphans: Vec<usize> = (0..files.len())
-        .filter(|i| !reached.contains_key(i))
+        .filter(|i| !w.reached.contains_key(i))
         .collect();
     orphans.sort_by_key(|&i| files[i].path.components().count());
     for i in orphans {
-        if reached.contains_key(&i) {
-            continue;
+        if !w.reached.contains_key(&i) {
+            w.push(i, under_tests(&files[i], crates), false, false);
+            w.run();
         }
-        let f = &files[i];
-        let under_tests = f.crate_idx.is_some_and(|c| {
-            let rel = f.path.strip_prefix(&crates[c].dir).unwrap_or(&f.path);
-            rel.components()
-                .next()
-                .is_some_and(|c| matches!(c.as_os_str().to_str(), Some("tests" | "benches")))
-        });
-        queue.push_back((i, under_tests, false, false));
-        walk(&mut queue, &mut reached);
     }
 
+    let ModWalk {
+        reached,
+        unresolved,
+        unchecked,
+        ..
+    } = w;
     for (i, f) in files.iter_mut().enumerate() {
         f.whole_test = reached.get(&i).copied().unwrap_or(f.facts.file_test);
         f.unresolved_mods = unresolved.contains(&i);
         f.orphan = !compiled.contains(&i);
         f.unchecked_test = f.whole_test && unchecked.contains(&i);
+    }
+}
+
+/// Whether a file sits under its crate's tests/ or benches/.
+fn under_tests(f: &FileAnalysis, crates: &[Crate]) -> bool {
+    f.crate_idx.is_some_and(|c| {
+        let rel = f.path.strip_prefix(&crates[c].dir).unwrap_or(&f.path);
+        rel.components()
+            .next()
+            .is_some_and(|c| matches!(c.as_os_str().to_str(), Some("tests" | "benches")))
+    })
+}
+
+/// A file to visit in the module walk.
+struct ModStep {
+    file: usize,
+    /// Reached from test code.
+    test: bool,
+    /// Behaves like mod.rs for its children (crate roots, `#[path]` files).
+    mod_rs: bool,
+    /// That test code is unchecked (`loom`).
+    off: bool,
+}
+
+/// The module walk's state: a queue of files and what's known about each.
+struct ModWalk<'a> {
+    files: &'a [FileAnalysis],
+    index: HashMap<PathBuf, usize>,
+    queue: VecDeque<ModStep>,
+    /// Reached from non-test code anywhere wins: such a file is not test
+    /// code.
+    reached: HashMap<usize, bool>,
+    /// Files with a `mod x;` whose file wasn't found.
+    unresolved: HashSet<usize>,
+    /// Reached as test code the recommended check doesn't build (`loom`).
+    unchecked: HashSet<usize>,
+}
+
+impl<'a> ModWalk<'a> {
+    fn new(files: &'a [FileAnalysis]) -> Self {
+        ModWalk {
+            files,
+            index: files
+                .iter()
+                .enumerate()
+                .map(|(i, f)| (f.path.clone(), i))
+                .collect(),
+            queue: VecDeque::new(),
+            reached: HashMap::new(),
+            unresolved: HashSet::new(),
+            unchecked: HashSet::new(),
+        }
+    }
+
+    fn push(&mut self, file: usize, test: bool, mod_rs: bool, off: bool) {
+        self.queue.push_back(ModStep {
+            file,
+            test,
+            mod_rs,
+            off,
+        });
+    }
+
+    fn run(&mut self) {
+        while let Some(s) = self.queue.pop_front() {
+            self.step(s);
+        }
+    }
+
+    /// Visits one file (again only when first reached as test code and now
+    /// from non-test code) and queues its declared modules.
+    fn step(&mut self, s: ModStep) {
+        let files = self.files;
+        let facts = &files[s.file].facts;
+        let off = (s.test && s.off) || (facts.file_test && !facts.file_checked);
+        let test = s.test || facts.file_test;
+        if test && off {
+            self.unchecked.insert(s.file);
+        }
+        if let Some(&prev) = self.reached.get(&s.file)
+            && (!prev || prev == test)
+        {
+            return;
+        }
+        self.reached.insert(s.file, test);
+        let path = &files[s.file].path;
+        let Some(dir) = path.parent() else { return };
+        let is_mod_rs = s.mod_rs || path.file_name().is_some_and(|n| n == "mod.rs");
+        let base = if is_mod_rs {
+            dir.to_path_buf()
+        } else {
+            dir.join(path.file_stem().unwrap_or_default())
+        };
+        for d in &facts.mod_decls {
+            match self.find_mod(dir, &base, d) {
+                Some((c, child_mod_rs)) => {
+                    let child_off = (test && off) || (d.test && !d.checked);
+                    self.push(c, test || d.test, child_mod_rs, child_off);
+                }
+                None => {
+                    self.unresolved.insert(s.file);
+                }
+            }
+        }
+    }
+
+    /// The file a `mod` declaration names, the way rustc looks for it, and
+    /// whether it behaves like mod.rs. `dir` is the declaring file's
+    /// directory, `base` where its child modules live.
+    fn find_mod(&self, dir: &Path, base: &Path, d: &ModDecl) -> Option<(usize, bool)> {
+        let mut child_dir = base.to_path_buf();
+        child_dir.extend(&d.inline_path);
+        let lookup = |p: PathBuf| self.index.get(&normalize(&p)).copied();
+        match &d.path_attr {
+            // Relative to the file's own directory outside inline modules.
+            Some(p) if d.inline_path.is_empty() => lookup(dir.join(p)).map(|c| (c, true)),
+            Some(p) => lookup(child_dir.join(p)).map(|c| (c, true)),
+            None => lookup(child_dir.join(format!("{}.rs", d.name)))
+                .map(|c| (c, false))
+                .or_else(|| lookup(child_dir.join(&d.name).join("mod.rs")).map(|c| (c, true))),
+        }
     }
 }
 
