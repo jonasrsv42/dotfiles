@@ -1,39 +1,216 @@
 {
+  "duplicate_notes": {
+    "shown": 1,
+    "total": 1
+  },
+  "excluded_duplicates": {
+    "substance": 1
+  },
   "findings": [
     {
       "category": "impl",
       "copies": [
         {
+          "class": 0,
           "crate": "fxapp",
           "end_line": 13,
           "file": "app/src/dup_b.rs",
           "line": 3,
           "name": "adler",
           "path": "<ws>/app/src/dup_b.rs",
-          "start_line": 3
+          "signature": {
+            "params": [
+              "&[u8]"
+            ],
+            "receiver": "none",
+            "ret": "u32"
+          },
+          "start_line": 3,
+          "test": false
         },
         {
+          "class": 0,
           "crate": "fxcore",
           "end_line": 13,
           "file": "core/src/dup_a.rs",
           "line": 3,
           "name": "checksum",
           "path": "<ws>/core/src/dup_a.rs",
-          "start_line": 3
+          "signature": {
+            "params": [
+              "&[u8]"
+            ],
+            "receiver": "none",
+            "ret": "u32"
+          },
+          "start_line": 3,
+          "test": false
+        },
+        {
+          "class": 0,
+          "crate": "fxcore",
+          "end_line": 33,
+          "file": "core/src/dup_a.rs",
+          "line": 23,
+          "name": "reference",
+          "path": "<ws>/core/src/dup_a.rs",
+          "signature": {
+            "params": [
+              "&[u8]"
+            ],
+            "receiver": "none",
+            "ret": "u32"
+          },
+          "start_line": 22,
+          "test": true
         }
       ],
       "crate": "fxapp",
-      "detail": "2 identical bodies; spans crates (needs a shared dependency); up to ~11 lines saved",
+      "crates": [
+        "fxapp",
+        "fxcore"
+      ],
+      "depends": [
+        [
+          "fxapp",
+          "fxcore"
+        ]
+      ],
+      "detail": "3 identical fns; in fxapp, fxcore; fxapp depends on fxcore; move it into a shared crate, or reuse it through a dependency; up to ~20 lines saved",
       "end_line": 13,
       "file": "app/src/dup_b.rs",
+      "hint": "move it into a shared crate, or reuse it through a dependency",
       "identical": true,
       "kind": "duplicate",
       "line": 3,
-      "lines": 11,
-      "lines_saved": 11,
+      "lines": 10,
+      "lines_saved": 20,
       "name": "adler",
       "path": "<ws>/app/src/dup_b.rs",
-      "start_line": 3
+      "rule": "crates",
+      "start_line": 3,
+      "tier": "finding"
+    },
+    {
+      "category": "impl",
+      "copies": [
+        {
+          "class": 0,
+          "crate": "fxcore",
+          "end_line": 16,
+          "file": "core/src/dup_a.rs",
+          "line": 16,
+          "name": "plus",
+          "path": "<ws>/core/src/dup_a.rs",
+          "signature": {
+            "params": [
+              "u32",
+              "u32"
+            ],
+            "receiver": "none",
+            "ret": "u32"
+          },
+          "start_line": 15,
+          "test": false
+        },
+        {
+          "class": 0,
+          "crate": "fxcore",
+          "end_line": 18,
+          "file": "core/src/dup_a.rs",
+          "line": 18,
+          "name": "add",
+          "path": "<ws>/core/src/dup_a.rs",
+          "signature": {
+            "params": [
+              "u32",
+              "u32"
+            ],
+            "receiver": "none",
+            "ret": "u32"
+          },
+          "start_line": 18,
+          "test": false
+        }
+      ],
+      "crate": "fxcore",
+      "crates": [
+        "fxcore"
+      ],
+      "detail": "2 identical fns; a helper both can call; up to ~1 lines saved",
+      "end_line": 16,
+      "file": "core/src/dup_a.rs",
+      "hint": "a helper both can call",
+      "identical": true,
+      "kind": "duplicate",
+      "line": 16,
+      "lines": 1,
+      "lines_saved": 1,
+      "name": "plus",
+      "path": "<ws>/core/src/dup_a.rs",
+      "rule": "identical",
+      "start_line": 15,
+      "tier": "finding"
+    },
+    {
+      "category": "impl",
+      "copies": [
+        {
+          "class": 0,
+          "crate": "fxcore",
+          "end_line": 73,
+          "file": "core/src/dup_a.rs",
+          "line": 73,
+          "name": "Left::twice",
+          "path": "<ws>/core/src/dup_a.rs",
+          "signature": {
+            "params": [],
+            "receiver": "ref",
+            "ret": "u32",
+            "self_ty": "Left"
+          },
+          "start_line": 73,
+          "test": false
+        },
+        {
+          "class": 1,
+          "crate": "fxcore",
+          "end_line": 77,
+          "file": "core/src/dup_a.rs",
+          "line": 77,
+          "name": "Right::twice",
+          "path": "<ws>/core/src/dup_a.rs",
+          "signature": {
+            "params": [],
+            "receiver": "ref",
+            "ret": "u32",
+            "self_ty": "Right"
+          },
+          "start_line": 77,
+          "test": false
+        }
+      ],
+      "crate": "fxcore",
+      "crates": [
+        "fxcore"
+      ],
+      "detail": "2 equal bodies under different signatures (differing: Self type): Left::twice | Right::twice; same body on different types: a shared helper or a generic impl may fit; often by design",
+      "differs": [
+        "self_type"
+      ],
+      "end_line": 73,
+      "file": "core/src/dup_a.rs",
+      "hint": "same body on different types: a shared helper or a generic impl may fit; often by design",
+      "identical": true,
+      "kind": "duplicate",
+      "line": 73,
+      "lines": 1,
+      "lines_saved": 1,
+      "name": "Left::twice",
+      "path": "<ws>/core/src/dup_a.rs",
+      "rule": "signatures",
+      "start_line": 73,
+      "tier": "note"
     },
     {
       "category": "impl",
@@ -94,9 +271,9 @@
   ],
   "hidden_pub": 0,
   "root": "<ws>",
-  "schema": 3,
+  "schema": 6,
   "shown": {
-    "duplicate": 1,
+    "duplicate": 2,
     "long_fn": 1,
     "single_impl_trait": 1,
     "unused": 1
@@ -107,7 +284,7 @@
     "min_dup": 8
   },
   "totals": {
-    "duplicate": 1,
+    "duplicate": 2,
     "long_fn": 1,
     "single_impl_trait": 1,
     "unused": 1

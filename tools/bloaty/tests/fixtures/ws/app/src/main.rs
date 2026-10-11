@@ -26,7 +26,7 @@ fn main() {
     println!("{}", describe(&config));
     println!("{:?} of {}", plan(&jobs, 20), total(&jobs));
     println!("{} {}", fxcore::run_all(&xs), fxcore::shared::label(1));
-    println!("{}", fxcore::dup_a::checksum(b"fx") ^ dup_b::adler(b"fx"));
+    println!("{}", fxcore::dup_a::checksum(b"fx") ^ dup_b::adler(b"fx") ^ fxcore::dup_a::plus(1, fxcore::dup_a::add(2, 3)) ^ fxcore::dup_a::Left(1).twice() ^ fxcore::dup_a::Right(2).twice());
     println!("{}", largest(&[Square(2.0)]) + f64::from(classify('x', false)));
     let stats = fxcore::allowed::Stats { done: 1, failed: 0, queued: 2, workers: 1 };
     println!("{:?}", fxcore::allowed::report(&stats));

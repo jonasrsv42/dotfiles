@@ -207,6 +207,8 @@ impl Lexer {
 
     /// Tracks nesting for one punctuation character (two for `||`, `&&`,
     /// `==`, `=>`).
+    // A token table: one arm per punctuation rule over shared lexer state.
+    #[allow(clippy::cognitive_complexity)]
     fn punct(&mut self, c: char, next: char) {
         let before = self.at(self.i.wrapping_sub(1));
         // In operand position (`!x`, `&x`, `*const *const T`, `|x| ..`), not

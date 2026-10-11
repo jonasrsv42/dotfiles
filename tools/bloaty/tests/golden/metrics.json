@@ -292,6 +292,70 @@
     {
       "clones": 0,
       "crate": "fxcore",
+      "cyclomatic_complexity": 1,
+      "end_line": 16,
+      "file": "core/src/dup_a.rs",
+      "line": 16,
+      "lines": 1,
+      "name": "plus",
+      "nesting": 0,
+      "panic_sites": [],
+      "panics": 0,
+      "params": 2,
+      "path": "<ws>/core/src/dup_a.rs",
+      "start_line": 15
+    },
+    {
+      "clones": 0,
+      "crate": "fxcore",
+      "cyclomatic_complexity": 1,
+      "end_line": 18,
+      "file": "core/src/dup_a.rs",
+      "line": 18,
+      "lines": 1,
+      "name": "add",
+      "nesting": 0,
+      "panic_sites": [],
+      "panics": 0,
+      "params": 2,
+      "path": "<ws>/core/src/dup_a.rs",
+      "start_line": 18
+    },
+    {
+      "clones": 0,
+      "crate": "fxcore",
+      "cyclomatic_complexity": 1,
+      "end_line": 73,
+      "file": "core/src/dup_a.rs",
+      "line": 73,
+      "lines": 1,
+      "name": "Left::twice",
+      "nesting": 0,
+      "panic_sites": [],
+      "panics": 0,
+      "params": 0,
+      "path": "<ws>/core/src/dup_a.rs",
+      "start_line": 73
+    },
+    {
+      "clones": 0,
+      "crate": "fxcore",
+      "cyclomatic_complexity": 1,
+      "end_line": 77,
+      "file": "core/src/dup_a.rs",
+      "line": 77,
+      "lines": 1,
+      "name": "Right::twice",
+      "nesting": 0,
+      "panic_sites": [],
+      "panics": 0,
+      "params": 0,
+      "path": "<ws>/core/src/dup_a.rs",
+      "start_line": 77
+    },
+    {
+      "clones": 0,
+      "crate": "fxcore",
       "cyclomatic_complexity": 2,
       "end_line": 15,
       "file": "core/src/f01.rs",
@@ -943,5 +1007,5 @@
     }
   ],
   "root": "<ws>",
-  "schema": 3
+  "schema": 6
 }

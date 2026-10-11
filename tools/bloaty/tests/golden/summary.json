@@ -574,6 +574,41 @@
       "test": 0
     },
     {
+      "blank": 11,
+      "clones": 0,
+      "comment": 1,
+      "crate": "fxcore",
+      "doc": 4,
+      "files": 1,
+      "impl": 21,
+      "largest_fn": {
+        "line": 3,
+        "lines": 11,
+        "name": "checksum"
+      },
+      "max_cyclomatic_complexity": {
+        "line": 3,
+        "name": "checksum",
+        "value": 2
+      },
+      "max_nesting": {
+        "line": 3,
+        "name": "checksum",
+        "value": 1
+      },
+      "name": "core/src/dup_a.rs",
+      "panics": 0,
+      "path": "<ws>/core/src/dup_a.rs",
+      "smell": {
+        "complexity": 0.55,
+        "fragility": 0.0,
+        "front": 7,
+        "level": null,
+        "size": 0.63
+      },
+      "test": 41
+    },
+    {
       "blank": 1,
       "clones": 0,
       "comment": 0,
@@ -907,7 +942,7 @@
       "smell": {
         "complexity": 0.55,
         "fragility": 0.0,
-        "front": 7,
+        "front": 8,
         "level": null,
         "size": 0.55
       },
@@ -942,7 +977,7 @@
       "smell": {
         "complexity": 0.55,
         "fragility": 0.0,
-        "front": 7,
+        "front": 8,
         "level": null,
         "size": 0.55
       },
@@ -977,7 +1012,7 @@
       "smell": {
         "complexity": 0.55,
         "fragility": 0.0,
-        "front": 7,
+        "front": 8,
         "level": null,
         "size": 0.55
       },
@@ -1012,7 +1047,7 @@
       "smell": {
         "complexity": 0.55,
         "fragility": 0.0,
-        "front": 8,
+        "front": 9,
         "level": null,
         "size": 0.43
       },
@@ -1047,7 +1082,7 @@
       "smell": {
         "complexity": 0.55,
         "fragility": 0.0,
-        "front": 8,
+        "front": 9,
         "level": null,
         "size": 0.43
       },
@@ -1082,7 +1117,7 @@
       "smell": {
         "complexity": 0.55,
         "fragility": 0.0,
-        "front": 8,
+        "front": 9,
         "level": null,
         "size": 0.43
       },
@@ -1117,7 +1152,7 @@
       "smell": {
         "complexity": 0.1,
         "fragility": 0.0,
-        "front": 9,
+        "front": 10,
         "level": null,
         "size": 0.43
       },
@@ -1152,42 +1187,7 @@
       "smell": {
         "complexity": 0.55,
         "fragility": 0.0,
-        "front": 9,
-        "level": null,
-        "size": 0.28
-      },
-      "test": 0
-    },
-    {
-      "blank": 1,
-      "clones": 0,
-      "comment": 0,
-      "crate": "fxcore",
-      "doc": 1,
-      "files": 1,
-      "impl": 11,
-      "largest_fn": {
-        "line": 3,
-        "lines": 11,
-        "name": "checksum"
-      },
-      "max_cyclomatic_complexity": {
-        "line": 3,
-        "name": "checksum",
-        "value": 2
-      },
-      "max_nesting": {
-        "line": 3,
-        "name": "checksum",
-        "value": 1
-      },
-      "name": "core/src/dup_a.rs",
-      "panics": 0,
-      "path": "<ws>/core/src/dup_a.rs",
-      "smell": {
-        "complexity": 0.55,
-        "fragility": 0.0,
-        "front": 9,
+        "front": 10,
         "level": null,
         "size": 0.28
       },
@@ -1222,7 +1222,7 @@
       "smell": {
         "complexity": 0.1,
         "fragility": 0.0,
-        "front": 10,
+        "front": 11,
         "level": null,
         "size": 0.28
       },
@@ -1257,7 +1257,7 @@
       "smell": {
         "complexity": 0.55,
         "fragility": 0.0,
-        "front": 9,
+        "front": 10,
         "level": null,
         "size": 0.28
       },
@@ -1292,7 +1292,7 @@
       "smell": {
         "complexity": 0.55,
         "fragility": 0.0,
-        "front": 9,
+        "front": 10,
         "level": null,
         "size": 0.28
       },
@@ -1327,7 +1327,7 @@
       "smell": {
         "complexity": 0.1,
         "fragility": 0.0,
-        "front": 11,
+        "front": 12,
         "level": null,
         "size": 0.16
       },
@@ -1362,7 +1362,7 @@
       "smell": {
         "complexity": 0.55,
         "fragility": 0.0,
-        "front": 10,
+        "front": 11,
         "level": null,
         "size": 0.16
       },
@@ -1488,16 +1488,16 @@
   ],
   "hidden": 0,
   "root": "<ws>",
-  "schema": 3,
+  "schema": 6,
   "sort": "impl",
   "test_features": [],
   "total": {
-    "blank": 66,
-    "comment": 8,
-    "doc": 40,
+    "blank": 76,
+    "comment": 9,
+    "doc": 43,
     "files": 39,
-    "impl": 819,
+    "impl": 829,
     "name": "total",
-    "test": 35
+    "test": 76
   }
 }

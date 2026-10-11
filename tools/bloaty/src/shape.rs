@@ -16,7 +16,8 @@
 //! Panics are never excused.
 
 use crate::fnmetrics::{FnMetrics, arm_metrics, expr_complexity, remainder_metrics};
-use crate::visit::{compact, token_hashes};
+use crate::visit::body::token_hashes;
+use crate::visit::syntax::compact;
 use proc_macro2::{Delimiter, TokenStream, TokenTree};
 use quote::ToTokens;
 use serde::Serialize;
@@ -529,12 +530,16 @@ mod tests {
         fact(&facts(src), name).shape.clone()
     }
 
-    #[test]
-    fn tables() {
-        let t = |src: &str| match shape_of(src, "f") {
+    /// The entries of `f` if it is a table.
+    fn t(src: &str) -> Option<usize> {
+        match shape_of(src, "f") {
             Some(Shape::Table(t)) => Some(t.entries),
             _ => None,
-        };
+        }
+    }
+
+    #[test]
+    fn tables() {
         assert_eq!(
             t(
                 "fn f() -> Vec<R> { vec![R::new(A, \"a\", h::a), R::new(B, \"b\", h::b), R::only(C), R { x: 1, y: (2, 3) }] }"
@@ -593,6 +598,60 @@ mod tests {
             panic!("not a table")
         };
         assert_eq!((t.start_line, t.end_line), (5, 8));
+    }
+
+    #[test]
+    fn table_entries_of_every_simple_kind() {
+        for src in [
+            "fn f() -> [i8; 4] { [-1, -2, -3, -4] }",
+            "fn f() -> [&u8; 4] { [&A, &B, &C, &D] }",
+            "fn f() -> [u8; 4] { [(1), (2), (3), (4)] }",
+            "fn f() -> [u8; 4] { [1 as u8, 2 as u8, 3 as u8, 4 as u8] }",
+            "fn f() -> [u8; 4] { [a.x, a.y, a.z, a.w] }",
+            "fn f() -> [[u8; 2]; 4] { [[1, 2], [3, 4], [5, 6], [7, 8]] }",
+            "fn f() -> Vec<S> { vec![a.into(), b.into(), c.into(), d.into()] }",
+            "fn f() -> R { R { a: 1, b: 2, c: 3, d: 4 } }",
+            // The literal may sit in parentheses; calls nest 4 deep.
+            "fn f() -> [u8; 4] { ([1, 2, 3, 4]) }",
+            "fn f() -> Vec<u8> { vec![g(g(g(g(1)))), 2, 3, 4] }",
+        ] {
+            assert_eq!(t(src), Some(4), "{src}");
+        }
+    }
+
+    #[test]
+    fn table_entries_hide_no_logic() {
+        for src in [
+            // Logic in a call's, a method's or a struct's argument.
+            "fn f() -> Vec<u8> { vec![g(a + 1), g(2), g(3), g(4)] }",
+            "fn f() -> Vec<u8> { vec![a.g(b + 1), a.g(2), a.g(3), a.g(4)] }",
+            "fn f() -> Vec<R> { vec![R { x: a + 1, ..D }, R { x: 1, ..D }, R { x: 2, ..D }, R { x: 3, ..D }] }",
+            "fn f() -> R { R { a: 1, b: 2, c: 3, d: 4, ..make(x + 1) } }",
+            // Too deep; only `vec!` among macros; one wrapping call only.
+            "fn f() -> Vec<u8> { vec![g(g(g(g(g(1))))), 2, 3, 4] }",
+            "fn f() -> X { foo![1, 2, 3, 4] }",
+            "fn f() -> X { A::from(B::from([1, 2, 3, 4])) }",
+            // Logic in a match table's scrutinee counts against the whole
+            // table, though only its arms would be excused (see plan.md).
+            "fn f(x: u8, c: bool) -> u8 { match if c { x } else { 0 } { 0 => 1, 1 => 2, 2 => 3, _ => 0 } }",
+        ] {
+            assert_eq!(t(src), None, "{src}");
+        }
+    }
+
+    #[test]
+    fn macro_entry_tokens_read_as_data_without_blocks_or_logic() {
+        let entry = |tokens: &str| {
+            t(&format!(
+                "fn f() -> Vec<u8> {{ vec![n![{tokens}], 1, 2, 3] }}"
+            ))
+        };
+        for tokens in ["a (b c)", "a & b c", "a | b c", "a::b c"] {
+            assert_eq!(entry(tokens), Some(4), "{tokens}");
+        }
+        for tokens in ["a {b} c", "a && b c", "a || b c"] {
+            assert_eq!(entry(tokens), None, "{tokens}");
+        }
     }
 
     #[test]
@@ -687,6 +746,35 @@ mod tests {
         let mut t = table(vec![(1, 13), (14, 15), (16, 17), (18, 19)]);
         settle(&mut t, lines);
         assert_eq!(t, None);
+        // One line per entry is enough.
+        let mut t = Some(Shape::Table(Table {
+            entries: 4,
+            start_line: 1,
+            end_line: 4,
+            lines: 0,
+            entry_spans: vec![(1, 1), (2, 2), (3, 3), (4, 4)],
+        }));
+        settle(&mut t, lines);
+        assert!(t.is_some());
+    }
+
+    #[test]
+    fn small_arms_are_short_and_simple() {
+        let arm = |body_lines, complexity| Arm {
+            name: "A".into(),
+            line: 1,
+            end_line: 1,
+            lines: 0,
+            body_line: 1,
+            body_lines,
+            metrics: FnMetrics {
+                complexity,
+                ..Default::default()
+            },
+        };
+        assert!(arm(12, 3).small());
+        assert!(!arm(3, 4).small());
+        assert!(!arm(13, 1).small());
     }
 
     #[test]
@@ -748,6 +836,41 @@ mod tests {
         // A call with enough tokens, over two statements.
         let r = repeat(&arms("let a = load(p, 1).unwrap_or(0); let b = a + 1;"));
         assert_eq!(r.map(|r| (r.statements, r.count)), Some((2, 2)));
+        for (body, expected) in [
+            // Enough tokens with a call, `?` or control flow in them...
+            ("let a = -f(p, q, r);", Some((1, 2))),
+            ("let a = p + q + r + s + t; f();", Some((2, 2))),
+            ("let a = p.q?; let b = a.r?;", Some((2, 2))),
+            // ...not a short call, nor brackets that aren't a call.
+            ("let a = f(p);", None),
+            ("let a = (p, q, r, s, t, u, v);", None),
+            ("let a = [p, q, r, s, t, u, v, w];", None),
+            ("(a, b) = (p, q, r, s, t, u); let c = a;", None),
+        ] {
+            let r = repeat(&arms(body));
+            assert_eq!(r.map(|r| (r.statements, r.count)), expected, "{body}");
+        }
+        // An arm's only statement is its value, not a prelude.
+        let one = "fn f(m: M) -> u32 { match m { M::A(p) => { load(p, 1, 2, 3, 4, 5) } M::B(p) => { load(p, 1, 2, 3, 4, 5) } M::C => 3, M::D => 4 } }";
+        assert_eq!(repeat(one), None);
+    }
+
+    #[test]
+    fn the_largest_group_of_repeated_preludes_wins() {
+        let src = "fn f(m: M) -> u32 { match m {
+            M::A(p) => { let a = load(p, 1, 2, 3); 1 }
+            M::B(p) => { let a = load(p, 1, 2, 3); 2 }
+            M::C(p) => { let x = p.get(0).unwrap_or(9); 3 }
+            M::D(p) => { let x = p.get(0).unwrap_or(9); 4 }
+            M::E(p) => { let x = p.get(0).unwrap_or(9); 5 }
+            M::F => 6 } }";
+        // Groups come out of a HashMap: repeat so either order is seen.
+        for _ in 0..16 {
+            let Some(Shape::Dispatch(d)) = shape_of(src, "f") else {
+                panic!("not a dispatch")
+            };
+            assert_eq!(d.repeat.map(|r| r.count), Some(3));
+        }
     }
 
     #[test]

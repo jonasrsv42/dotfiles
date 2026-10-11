@@ -53,9 +53,9 @@ pub struct Crate {
     /// `None`: `publish.workspace = true`, decided by the workspace.
     publish: Option<bool>,
     deps: Vec<Dep>,
-    /// Workspace crates it depends on (index, dev-only), resolved from
-    /// `deps` once every manifest is read.
-    pub links: Vec<(usize, bool)>,
+    /// Workspace crates it depends on directly (any dependency table),
+    /// resolved from `deps` once every manifest is read.
+    pub links: Vec<usize>,
     roots: Vec<PathBuf>,
     /// Root files that are tests/benches (whole-test module trees).
     test_roots: Vec<PathBuf>,
@@ -82,7 +82,6 @@ struct Dep {
     /// `path = ".."`, canonical.
     path: Option<PathBuf>,
     workspace: bool,
-    dev: bool,
 }
 
 pub struct FileAnalysis {
@@ -106,6 +105,9 @@ pub struct FileAnalysis {
     /// Whole-test, but only under cfgs the recommended check doesn't build
     /// (`#[cfg(loom)] mod x;`): its mentions count as ordinary uses.
     pub unchecked_test: bool,
+    /// Non-test cfgs on the `mod` declarations that lead to it (the first
+    /// path the module walk takes), as text like `FnFact::cfgs`.
+    pub cfgs: Vec<String>,
     pub lines: Vec<LineClass>,
     /// Per line (0-based): inside a test-only item.
     pub test_mask: Vec<bool>,
@@ -378,7 +380,7 @@ fn link_crates(crates: &mut [Crate], workspaces: &[Workspace], patches: &HashMap
                 (None, true) => workspace.and_then(|w| w.deps.get(&d.key)),
                 (None, false) => patches.get(&d.package),
             }?;
-            Some((*by_dir.get(dir)?, d.dev))
+            by_dir.get(dir).copied()
         });
         c.links = links.collect();
     }
@@ -428,7 +430,7 @@ fn related_crates(
     }
     let mut parent: Vec<usize> = (0..crates.len()).collect();
     for (i, c) in crates.iter().enumerate() {
-        for &(j, _) in &c.links {
+        for &j in &c.links {
             union(&mut parent, i, j);
         }
     }
@@ -657,25 +659,21 @@ impl Manifest {
     /// Every dependency, from all dependency tables (platform ones too).
     fn dependencies(&self, dir: &Path) -> Vec<Dep> {
         let mut tables = vec![
-            (&self.dependencies, false),
-            (&self.dev_dependencies, true),
-            (&self.build_dependencies, false),
+            &self.dependencies,
+            &self.dev_dependencies,
+            &self.build_dependencies,
         ];
         for platform in self.target.values().filter_map(toml::Value::as_table) {
-            for (key, dev) in [
-                ("dependencies", false),
-                ("dev-dependencies", true),
-                ("build-dependencies", false),
-            ] {
+            for key in ["dependencies", "dev-dependencies", "build-dependencies"] {
                 if let Some(t) = platform.get(key).and_then(toml::Value::as_table) {
-                    tables.push((t, dev));
+                    tables.push(t);
                 }
             }
         }
         tables
             .into_iter()
-            .flat_map(|(t, dev)| t.iter().map(move |(k, spec)| (k, spec, dev)))
-            .map(|(key, spec, dev)| Dep {
+            .flat_map(|t| t.iter())
+            .map(|(key, spec)| Dep {
                 key: key.clone(),
                 package: spec
                     .get("package")
@@ -684,7 +682,6 @@ impl Manifest {
                     .to_string(),
                 path: spec_path(spec, dir),
                 workspace: spec.get("workspace").and_then(toml::Value::as_bool) == Some(true),
-                dev,
             })
             .collect()
     }
@@ -910,6 +907,7 @@ fn analyse(
         unresolved_mods: false,
         orphan: false,
         unchecked_test: false,
+        cfgs: Vec::new(),
         lines,
         test_mask,
         facts,
@@ -931,7 +929,7 @@ fn fallback_facts(src: &str) -> FileFacts {
 
 /// Counts every identifier-like word of `src` into `refs`.
 fn count_words(src: &str, refs: &mut HashMap<String, u32>) {
-    for word in visit::words(src) {
+    for word in visit::syntax::words(src) {
         *refs.entry(word.to_string()).or_default() += 1;
     }
 }
@@ -987,9 +985,11 @@ fn resolve_modules(files: &mut [FileAnalysis], crates: &[Crate]) {
         reached,
         unresolved,
         unchecked,
+        mut cfgs,
         ..
     } = w;
     for (i, f) in files.iter_mut().enumerate() {
+        f.cfgs = cfgs.remove(&i).unwrap_or_default();
         f.whole_test = reached.get(&i).copied().unwrap_or(f.facts.file_test);
         f.unresolved_mods = unresolved.contains(&i);
         f.orphan = !compiled.contains(&i);
@@ -1016,6 +1016,8 @@ struct ModStep {
     mod_rs: bool,
     /// That test code is unchecked (`loom`).
     off: bool,
+    /// Non-test cfgs on the declarations leading here.
+    cfgs: Vec<String>,
 }
 
 /// The module walk's state: a queue of files and what's known about each.
@@ -1030,6 +1032,8 @@ struct ModWalk<'a> {
     unresolved: HashSet<usize>,
     /// Reached as test code the recommended check doesn't build (`loom`).
     unchecked: HashSet<usize>,
+    /// Cfgs of the first path reaching each file.
+    cfgs: HashMap<usize, Vec<String>>,
 }
 
 impl<'a> ModWalk<'a> {
@@ -1045,15 +1049,21 @@ impl<'a> ModWalk<'a> {
             reached: HashMap::new(),
             unresolved: HashSet::new(),
             unchecked: HashSet::new(),
+            cfgs: HashMap::new(),
         }
     }
 
     fn push(&mut self, file: usize, test: bool, mod_rs: bool, off: bool) {
+        self.push_cfg(file, test, mod_rs, off, Vec::new());
+    }
+
+    fn push_cfg(&mut self, file: usize, test: bool, mod_rs: bool, off: bool, cfgs: Vec<String>) {
         self.queue.push_back(ModStep {
             file,
             test,
             mod_rs,
             off,
+            cfgs,
         });
     }
 
@@ -1063,11 +1073,12 @@ impl<'a> ModWalk<'a> {
         }
     }
 
-    /// Visits one file (again only when first reached as test code and now
-    /// from non-test code) and queues its declared modules.
-    fn step(&mut self, s: ModStep) {
-        let files = self.files;
-        let facts = &files[s.file].facts;
+    /// Records reaching `s.file`: whether it is test code and unchecked
+    /// test code there, or `None` if it was walked like that already (a file
+    /// is walked again only when first reached as test code and now from
+    /// non-test code).
+    fn enter(&mut self, s: &ModStep) -> Option<(bool, bool)> {
+        let facts = &self.files[s.file].facts;
         let off = (s.test && s.off) || (facts.file_test && !facts.file_checked);
         let test = s.test || facts.file_test;
         if test && off {
@@ -1076,9 +1087,20 @@ impl<'a> ModWalk<'a> {
         if let Some(&prev) = self.reached.get(&s.file)
             && (!prev || prev == test)
         {
-            return;
+            return None;
         }
         self.reached.insert(s.file, test);
+        Some((test, off))
+    }
+
+    /// Visits one file (see `enter`) and queues its declared modules.
+    fn step(&mut self, s: ModStep) {
+        let Some((test, off)) = self.enter(&s) else {
+            return;
+        };
+        let files = self.files;
+        let facts = &files[s.file].facts;
+        let cfgs = self.cfgs.entry(s.file).or_insert(s.cfgs).clone();
         let path = &files[s.file].path;
         let Some(dir) = path.parent() else { return };
         let is_mod_rs = s.mod_rs || path.file_name().is_some_and(|n| n == "mod.rs");
@@ -1091,7 +1113,9 @@ impl<'a> ModWalk<'a> {
             match self.find_mod(dir, &base, d) {
                 Some((c, child_mod_rs)) => {
                     let child_off = (test && off) || (d.test && !d.checked);
-                    self.push(c, test || d.test, child_mod_rs, child_off);
+                    let mut child_cfgs = cfgs.clone();
+                    child_cfgs.extend(d.cfgs.iter().cloned());
+                    self.push_cfg(c, test || d.test, child_mod_rs, child_off, child_cfgs);
                 }
                 None => {
                     self.unresolved.insert(s.file);

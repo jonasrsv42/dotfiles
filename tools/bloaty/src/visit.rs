@@ -2,21 +2,32 @@
 //! ranges are test code, module declarations, imports, every function (size,
 //! body hashes, whether it just forwards, complexity and panic sites),
 //! traits/types, impls and derives, and how often each name is mentioned.
+//!
+//! Submodules: `cfg` (what is test code), `body` (forwarding, body hashes),
+//! `macros` (items only seen as macro tokens), `sig` (signatures as text),
+//! `syntax` (paths and types as text). Per-fn measures live in fnmetrics.rs, shapes in shape.rs.
+
+pub(crate) mod body;
+mod cfg;
+mod macros;
+pub(crate) mod sig;
+pub(crate) mod syntax;
 
 use crate::fnmetrics::{FnMetrics, PanicSite, fn_metrics};
 use crate::shape::{self, Lint, Shape};
-use proc_macro2::{Delimiter, TokenStream, TokenTree};
+use body::{body_hashes, forward_target, is_struct_literal, logic};
+use cfg::{always_built, cfg_attrs, is_checked_test, is_test_only};
+use macros::{macro_mod_decls, macro_trait_impls};
+use proc_macro2::{TokenStream, TokenTree};
 use quote::ToTokens;
 use serde::Serialize;
-use std::collections::hash_map::DefaultHasher;
+use sig::{Owner, Signature};
 use std::collections::{HashMap, HashSet};
-use std::hash::{Hash, Hasher};
 use syn::ext::IdentExt;
-use syn::parse::Parser;
-use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
 use syn::visit::{self, Visit};
-use syn::{Attribute, Block, Expr, FnArg, Item, Meta, Pat, Stmt, Token, Type};
+use syn::{Attribute, Block, Expr, Item, Meta, Type};
+use syntax::{compact, display_type, last_segment, path_segments, tidy_generics, words};
 
 /// What the visitor needs to know about the file beyond its syntax.
 pub struct Ctx<'a> {
@@ -79,6 +90,8 @@ pub struct ModDecl {
     /// ...that `cargo check --all-targets --all-features` builds (not
     /// `#[cfg(loom)] mod x;`).
     pub checked: bool,
+    /// Non-test cfgs on it and the items around it (`cfg (unix)`).
+    pub cfgs: Vec<String>,
 }
 
 #[derive(Serialize, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
@@ -138,11 +151,19 @@ pub struct FnFact {
     /// macro that may export it.
     pub exempt: bool,
     /// The non-test `#[cfg(..)]` predicates on the fn and its enclosing
-    /// items, if any.
-    pub cfg: Option<String>,
+    /// items (`cfg (unix)`), outermost first.
+    pub cfgs: Vec<String>,
     /// Set when the body is a single call that only passes its inputs along.
     pub forwards_to: Option<String>,
-    /// For fns spanning a few lines.
+    /// Its signature, name left out (duplicates compare it).
+    pub signature: Signature,
+    /// The line of the body's opening brace: lines before it (from `line`)
+    /// are signature.
+    pub body_line: usize,
+    /// Logic in the body (operators, branches, calls with arguments...;
+    /// none if it only forwards to `self` or its inputs): see `body::logic`.
+    pub logic: u32,
+    /// Unless nested deeply or a lone struct literal.
     pub body_hash: Option<BodyHash>,
     /// Complexity and fragility measures; `None` for test code.
     pub metrics: Option<FnMetrics>,
@@ -237,6 +258,8 @@ pub fn collect(file: &syn::File, ctx: &Ctx) -> FileFacts {
 
 struct ImplCtx {
     self_ty: String,
+    /// The impl's (or trait's) generics and where clause, as `sig` writes them.
+    generics: String,
     trait_name: Option<String>,
     /// The impl block carries an attribute macro (`#[pymethods]`, ...) that
     /// exports its fns.
@@ -304,6 +327,8 @@ struct FnSite<'s> {
     vis: Vis,
     kind: FnKind,
     test_only: bool,
+    /// The impl's Self type and trait (for default methods: the trait).
+    owner: Owner,
 }
 
 impl Visitor<'_> {
@@ -483,13 +508,14 @@ impl Visitor<'_> {
             vis: s.vis,
             kind: s.kind,
             exempt,
-            cfg: (!cfgs.is_empty()).then(|| cfgs.join(" ")),
+            cfgs,
+            signature: Signature::new(s.sig, s.block, s.owner),
+            body_line: s.block.brace_token.span.open().start().line,
+            logic: logic(s.sig, s.block),
             forwards_to,
             // A lone `Self { a, b, c }` matches every constructor of its shape.
-            body_hash: (self.fn_stack.len() < 3
-                && end_line >= line + 4
-                && !is_struct_literal(s.block))
-            .then(|| body_hashes(s.block)),
+            body_hash: (self.fn_stack.len() < 3 && !is_struct_literal(s.block))
+                .then(|| body_hashes(s.block)),
             metrics,
             panic_sites,
             shape,
@@ -645,6 +671,7 @@ impl<'ast> Visit<'ast> for Visitor<'_> {
                 path_attr,
                 test: self.in_test(),
                 checked: self.ref_test_depth > 0,
+                cfgs: self.cfg_stack.clone(),
             });
             return;
         }
@@ -668,6 +695,7 @@ impl<'ast> Visit<'ast> for Visitor<'_> {
             vis: vis_of(&f.vis),
             kind: FnKind::Free,
             test_only: false,
+            owner: Owner::default(),
         });
         self.visit_fn(fact, false, |v| visit::visit_item_fn(v, f));
     }
@@ -698,6 +726,7 @@ impl<'ast> Visit<'ast> for Visitor<'_> {
         });
         self.impl_ctx.push(ImplCtx {
             self_ty,
+            generics: sig::generics_text(&i.generics),
             trait_name: i
                 .trait_
                 .as_ref()
@@ -736,6 +765,11 @@ impl<'ast> Visit<'ast> for Visitor<'_> {
             ),
             None => (f.sig.ident.to_string(), FnKind::Inherent, vis_of(&f.vis)),
         };
+        let owner = self.impl_ctx.last().map_or_else(Owner::default, |c| Owner {
+            self_ty: Some(c.self_ty.clone()),
+            generics: c.generics.clone(),
+            trait_name: c.trait_name.clone(),
+        });
         let fact = self.fn_fact(FnSite {
             name,
             attrs: &f.attrs,
@@ -744,6 +778,7 @@ impl<'ast> Visit<'ast> for Visitor<'_> {
             vis,
             kind,
             test_only,
+            owner,
         });
         let checked = is_checked_test(&f.attrs, self.ctx.test_features);
         self.visit_fn(fact, checked, |v| visit::visit_impl_item_fn(v, f));
@@ -754,6 +789,7 @@ impl<'ast> Visit<'ast> for Visitor<'_> {
         self.push_item(ItemKind::Trait, &t.ident, &t.vis, &t.attrs, end);
         self.impl_ctx.push(ImplCtx {
             self_ty: t.ident.to_string(),
+            generics: sig::generics_text(&t.generics),
             trait_name: None,
             exempt: false,
         });
@@ -774,7 +810,10 @@ impl<'ast> Visit<'ast> for Visitor<'_> {
             let end = block.brace_token.span.close().end().line;
             self.facts.test_ranges.push((start, end));
         }
-        let owner = self.impl_ctx.last().map_or("?", |c| c.self_ty.as_str());
+        let (owner, generics) = self
+            .impl_ctx
+            .last()
+            .map_or(("?", ""), |c| (c.self_ty.as_str(), c.generics.as_str()));
         let fact = self.fn_fact(FnSite {
             name: format!("{owner}::{}", f.sig.ident),
             attrs: &f.attrs,
@@ -783,6 +822,11 @@ impl<'ast> Visit<'ast> for Visitor<'_> {
             vis: Vis::Public,
             kind: FnKind::TraitDefault,
             test_only,
+            owner: Owner {
+                self_ty: None,
+                generics: generics.to_string(),
+                trait_name: Some(owner.to_string()),
+            },
         });
         let checked = is_checked_test(&f.attrs, self.ctx.test_features);
         self.visit_fn(fact, checked, |v| visit::visit_trait_item_fn(v, f));
@@ -873,6 +917,7 @@ impl<'ast> Visit<'ast> for Visitor<'_> {
                         path_attr,
                         test: test || self.in_test(),
                         checked: self.ref_test_depth > 0 || (test && self.unchecked_depth == 0),
+                        cfgs: self.cfg_stack.clone(),
                     });
                 }
                 visit::visit_item_macro(self, m)
@@ -927,12 +972,6 @@ impl<'ast> Visit<'ast> for Visitor<'_> {
             self.count_ref(&i.to_string());
         }
     }
-}
-
-/// The identifier-like words of a text: what could name an item.
-pub fn words(text: &str) -> impl Iterator<Item = &str> {
-    text.split(|c: char| !(c.is_alphanumeric() || c == '_'))
-        .filter(|w| w.starts_with(|c: char| c.is_alphabetic() || c == '_'))
 }
 
 fn vis_of(v: &syn::Visibility) -> Vis {
@@ -1020,102 +1059,6 @@ fn item_range(item: &Item) -> (usize, usize) {
     (start, end)
 }
 
-/// `#[cfg(..)]` whose predicate can only hold under test (including `loom`
-/// and `fuzzing` builds), or a test-function attribute (`#[test]`,
-/// `#[tokio::test]`, `#[rstest]`, `#[test_case(..)]`).
-pub fn is_test_only(attrs: &[Attribute], test_features: &HashSet<String>) -> bool {
-    test_attr(attrs, test_features, false)
-}
-
-/// Test-only code that `cargo check --all-targets --all-features` builds:
-/// like `is_test_only`, but not `loom`/`fuzzing`/other-platform code.
-fn is_checked_test(attrs: &[Attribute], test_features: &HashSet<String>) -> bool {
-    test_attr(attrs, test_features, true) && always_built(attrs)
-}
-
-/// Whether every `#[cfg]` among the attributes holds when the recommended
-/// check runs (tests on, all features on), whatever the host: so no
-/// `loom`, `fuzzing`, `unix`/`windows`/`target_*`, `not(..)`.
-fn always_built(attrs: &[Attribute]) -> bool {
-    fn holds(m: &Meta) -> bool {
-        match m {
-            Meta::Path(p) => p.is_ident("test") || p.is_ident("debug_assertions"),
-            Meta::NameValue(nv) => nv.path.is_ident("feature"),
-            Meta::List(l) => {
-                let Ok(parts) = l.parse_args_with(Punctuated::<Meta, Token![,]>::parse_terminated)
-                else {
-                    return false;
-                };
-                if l.path.is_ident("all") {
-                    parts.iter().all(holds)
-                } else if l.path.is_ident("any") {
-                    parts.iter().any(holds)
-                } else {
-                    false
-                }
-            }
-        }
-    }
-    attrs
-        .iter()
-        .filter(|a| a.path().is_ident("cfg"))
-        .all(|a| match &a.meta {
-            Meta::List(l) => Punctuated::<Meta, Token![,]>::parse_terminated
-                .parse2(l.tokens.clone())
-                .is_ok_and(|p| p.iter().all(holds)),
-            _ => false,
-        })
-}
-
-fn test_attr(attrs: &[Attribute], test_features: &HashSet<String>, checked: bool) -> bool {
-    attrs.iter().any(|a| {
-        if a.path().is_ident("cfg") {
-            return match &a.meta {
-                Meta::List(l) => Punctuated::<Meta, Token![,]>::parse_terminated
-                    .parse2(l.tokens.clone())
-                    .is_ok_and(|p| p.len() == 1 && implies_test(&p[0], test_features, checked)),
-                _ => false,
-            };
-        }
-        let last = last_segment(a.path());
-        last == "test" || last == "rstest" || last.starts_with("test_case")
-    })
-}
-
-/// Does this cfg predicate being true imply we're building tests? `test` and
-/// test-support features do (and `loom`/`fuzzing`, unless `checked`); `all`
-/// if any part does; `any` if every part does.
-fn implies_test(m: &Meta, test_features: &HashSet<String>, checked: bool) -> bool {
-    match m {
-        Meta::Path(p) => {
-            p.is_ident("test") || (!checked && (p.is_ident("loom") || p.is_ident("fuzzing")))
-        }
-        Meta::NameValue(nv) if nv.path.is_ident("feature") => matches!(
-            &nv.value,
-            Expr::Lit(syn::ExprLit { lit: syn::Lit::Str(s), .. }) if test_features.contains(&s.value())
-        ),
-        Meta::List(l) => {
-            let Ok(parts) = l.parse_args_with(Punctuated::<Meta, Token![,]>::parse_terminated)
-            else {
-                return false;
-            };
-            if l.path.is_ident("all") {
-                parts
-                    .iter()
-                    .any(|p| implies_test(p, test_features, checked))
-            } else if l.path.is_ident("any") {
-                // `any(test, doc)`: docs builds don't run code, so ignore them.
-                let doc = |p: &Meta| p.path().is_ident("doc") || p.path().is_ident("doctest");
-                let code: Vec<_> = parts.iter().filter(|p| !doc(p)).collect();
-                !code.is_empty() && code.iter().all(|p| implies_test(p, test_features, checked))
-            } else {
-                false
-            }
-        }
-        _ => false,
-    }
-}
-
 fn collect_use(
     tree: &syn::UseTree,
     prefix: &mut Vec<String>,
@@ -1178,378 +1121,10 @@ fn impl_kind(self_ty: &Type, generics: &syn::Generics) -> ImplKind {
     }
 }
 
-/// `[#[cfg(test)]] [#[path = ".."]] [pub] mod name;` in macro tokens, as
-/// (name, path, under `#[cfg(test)]`). A `#[cfg(test)]` before a `{ .. }`
-/// group (`cfg_if!`'s `if #[cfg(test)] { .. }`) covers what's inside.
-fn macro_mod_decls(tokens: TokenStream, test: bool, out: &mut Vec<(String, Option<String>, bool)>) {
-    let toks: Vec<TokenTree> = tokens.into_iter().collect();
-    let (mut cfg_test, mut path) = (false, None);
-    let mut i = 0;
-    while i < toks.len() {
-        match (&toks[i], toks.get(i + 1), toks.get(i + 2)) {
-            (TokenTree::Punct(p), Some(TokenTree::Group(g)), _)
-                if p.as_char() == '#' && g.delimiter() == Delimiter::Bracket =>
-            {
-                let attr = g.stream().to_string().replace(' ', "");
-                if attr == "cfg(test)" {
-                    cfg_test = true;
-                } else if let Some(p) = attr.strip_prefix("path=") {
-                    path = Some(p.trim_matches('"').to_string());
-                }
-                i += 2;
-                continue;
-            }
-            (TokenTree::Ident(kw), Some(TokenTree::Ident(name)), Some(TokenTree::Punct(semi)))
-                if kw == "mod" && semi.as_char() == ';' =>
-            {
-                out.push((name.unraw().to_string(), path.take(), test || cfg_test));
-                cfg_test = false;
-                i += 3;
-                continue;
-            }
-            (TokenTree::Ident(kw), ..) if kw == "pub" => {}
-            (TokenTree::Group(g), ..) => {
-                macro_mod_decls(g.stream(), test || cfg_test, out);
-                cfg_test = false;
-                path = None;
-            }
-            _ => {
-                cfg_test = false;
-                path = None;
-            }
-        }
-        i += 1;
-    }
-}
-
-/// Trait paths in `impl .. Trait for ..` headers inside a macro_rules body.
-/// `$crate::Trait` comes back as `crate::Trait`.
-fn macro_trait_impls(tokens: TokenStream) -> Vec<Vec<String>> {
-    #[derive(PartialEq)]
-    enum Tok {
-        Ident(String),
-        Punct(char),
-        Open,
-    }
-    fn flatten(ts: TokenStream, out: &mut Vec<Tok>) {
-        for tt in ts {
-            match tt {
-                TokenTree::Ident(i) => out.push(Tok::Ident(i.to_string())),
-                TokenTree::Punct(p) => out.push(Tok::Punct(p.as_char())),
-                TokenTree::Literal(_) => out.push(Tok::Punct('l')),
-                TokenTree::Group(g) => {
-                    out.push(Tok::Open);
-                    flatten(g.stream(), out);
-                    out.push(Tok::Punct(')'));
-                }
-            }
-        }
-    }
-    let mut toks = Vec::new();
-    flatten(tokens, &mut toks);
-    let mut out = Vec::new();
-    for i in 0..toks.len() {
-        if toks[i] != Tok::Ident("impl".into()) {
-            continue;
-        }
-        let mut angle = 0i32;
-        for j in i + 1..(i + 48).min(toks.len()) {
-            match &toks[j] {
-                Tok::Open => break,
-                Tok::Punct('<') => angle += 1,
-                Tok::Punct('>') => angle -= 1,
-                Tok::Ident(s) if s == "for" && angle == 0 => {
-                    // Walk back over `$crate :: a :: Trait < .. >`.
-                    let mut k = j;
-                    let mut depth = 0i32;
-                    while k > i + 1 {
-                        match &toks[k - 1] {
-                            Tok::Punct('>') => depth += 1,
-                            Tok::Punct('<') => depth -= 1,
-                            _ if depth > 0 => {}
-                            _ => break,
-                        }
-                        k -= 1;
-                    }
-                    let mut path = Vec::new();
-                    while k > i + 1 {
-                        match &toks[k - 1] {
-                            Tok::Ident(s) => path.push(s.clone()),
-                            Tok::Punct(':') | Tok::Punct('$') => {}
-                            _ => break,
-                        }
-                        k -= 1;
-                    }
-                    path.reverse();
-                    if !path.is_empty() {
-                        out.push(path);
-                    }
-                    break;
-                }
-                _ => {}
-            }
-        }
-    }
-    out
-}
-
-/// If the block is just one call that passes the fn's own inputs along
-/// (params, `self`, their fields, references and trivial conversions of
-/// those), returns the callee. `Ok(..)`, `Some(..)`, `?`, `.await` and
-/// `.into()` around it are looked through. Not forwarding: fns without
-/// inputs (`Duration::from_secs(30)` binds a constant), constructors
-/// (`Id(raw)`), and turbofish calls (`work_loop::<T>(..)` specialises).
-fn forward_target(sig: &syn::Signature, block: &Block) -> Option<String> {
-    let params: Vec<String> = sig
-        .inputs
-        .iter()
-        .filter_map(|a| match a {
-            FnArg::Receiver(_) => Some("self".to_string()),
-            FnArg::Typed(t) => match &*t.pat {
-                Pat::Ident(i) => Some(i.ident.to_string()),
-                _ => None,
-            },
-        })
-        .collect();
-    if params.is_empty() {
-        return None;
-    }
-    let [Stmt::Expr(expr, _)] = block.stmts.as_slice() else {
-        return None;
-    };
-    let rooted = |e: &Expr| is_rooted(e, &params);
-    match peel(expr) {
-        Expr::Call(c) => {
-            let Expr::Path(p) = &*c.func else { return None };
-            let last = p.path.segments.last()?;
-            let constructor = last.ident.to_string().starts_with(char::is_uppercase);
-            let turbofish = p.path.segments.iter().any(|s| !s.arguments.is_empty());
-            (!constructor && !turbofish && !c.args.is_empty() && c.args.iter().all(rooted))
-                .then(|| compact(&c.func))
-        }
-        Expr::MethodCall(m) => {
-            (m.turbofish.is_none() && rooted(&m.receiver) && m.args.iter().all(rooted))
-                .then(|| format!("{}.{}", compact(&m.receiver), m.method))
-        }
-        _ => None,
-    }
-}
-
-const CONVERSIONS: &[&str] = &[
-    "into",
-    "clone",
-    "to_owned",
-    "to_string",
-    "as_ref",
-    "as_mut",
-    "unwrap",
-    "borrow",
-];
-const WRAPPERS: &[&str] = &[
-    "Ok", "Some", "Err", "Box::new", "Arc::new", "Rc::new", "Self",
-];
-
-fn is_conversion(m: &syn::ExprMethodCall) -> bool {
-    m.args.is_empty() && CONVERSIONS.contains(&m.method.to_string().as_str())
-}
-
-fn peel(mut e: &Expr) -> &Expr {
-    loop {
-        e = match e {
-            Expr::Paren(p) => &p.expr,
-            Expr::Try(t) => &t.expr,
-            Expr::Await(a) => &a.base,
-            Expr::Reference(r) => &r.expr,
-            Expr::MethodCall(m) if is_conversion(m) => &m.receiver,
-            Expr::Call(c) if c.args.len() == 1 && WRAPPERS.contains(&compact(&c.func).as_str()) => {
-                &c.args[0]
-            }
-            _ => return e,
-        };
-    }
-}
-
-/// An input of the fn: a param or `self`, or a field/reference/deref/trivial
-/// conversion of one.
-fn is_rooted(e: &Expr, params: &[String]) -> bool {
-    match e {
-        Expr::Path(p) => p
-            .path
-            .get_ident()
-            .is_some_and(|i| params.iter().any(|p| i == p)),
-        Expr::Field(f) => is_rooted(&f.base, params),
-        Expr::Reference(r) => is_rooted(&r.expr, params),
-        Expr::Paren(p) => is_rooted(&p.expr, params),
-        Expr::Unary(u) => matches!(u.op, syn::UnOp::Deref(_)) && is_rooted(&u.expr, params),
-        Expr::MethodCall(m) => is_conversion(m) && is_rooted(&m.receiver, params),
-        _ => false,
-    }
-}
-
-fn body_hashes(block: &Block) -> BodyHash {
-    token_hashes(block.to_token_stream())
-}
-
-/// `body_hashes` of any tokens.
-pub fn token_hashes(tokens: TokenStream) -> BodyHash {
-    const KEYWORDS: &[&str] = &[
-        "as", "async", "await", "break", "const", "continue", "else", "enum", "fn", "for", "if",
-        "impl", "in", "let", "loop", "match", "move", "mut", "ref", "return", "self", "Self",
-        "static", "struct", "unsafe", "where", "while", "dyn",
-    ];
-    struct H {
-        exact: DefaultHasher,
-        shape: DefaultHasher,
-        names: DefaultHasher,
-    }
-    impl H {
-        fn all(&mut self, v: impl Hash) {
-            v.hash(&mut self.exact);
-            v.hash(&mut self.shape);
-            v.hash(&mut self.names);
-        }
-    }
-    fn walk(ts: TokenStream, h: &mut H) {
-        let tokens: Vec<TokenTree> = ts.into_iter().collect();
-        for (i, tt) in tokens.iter().enumerate() {
-            match tt {
-                TokenTree::Group(g) => {
-                    h.all(match g.delimiter() {
-                        Delimiter::Parenthesis => 1u8,
-                        Delimiter::Brace => 2,
-                        Delimiter::Bracket => 3,
-                        Delimiter::None => 4,
-                    });
-                    walk(g.stream(), h);
-                    h.all(0u8);
-                }
-                TokenTree::Ident(ident) => {
-                    let s = ident.to_string();
-                    s.hash(&mut h.exact);
-                    s.hash(&mut h.names);
-                    // Keep what is called: `write!` vs `writeln!`, `push` vs
-                    // `insert` are different code, not renamed variables.
-                    let called = match tokens.get(i + 1) {
-                        Some(TokenTree::Punct(p)) => p.as_char() == '!',
-                        Some(TokenTree::Group(g)) => g.delimiter() == Delimiter::Parenthesis,
-                        _ => false,
-                    };
-                    if called || KEYWORDS.contains(&s.as_str()) {
-                        s.hash(&mut h.shape);
-                    } else {
-                        'i'.hash(&mut h.shape);
-                    }
-                }
-                TokenTree::Punct(p) => h.all(p.as_char()),
-                TokenTree::Literal(l) => {
-                    l.to_string().hash(&mut h.exact);
-                    'l'.hash(&mut h.shape);
-                    'l'.hash(&mut h.names);
-                }
-            }
-        }
-    }
-    let mut h = H {
-        exact: DefaultHasher::new(),
-        shape: DefaultHasher::new(),
-        names: DefaultHasher::new(),
-    };
-    walk(tokens, &mut h);
-    BodyHash {
-        exact: h.exact.finish(),
-        shape: h.shape.finish(),
-        names: h.names.finish(),
-    }
-}
-
-/// A type for display: generics kept so different impls stay apart,
-/// lifetimes dropped. Text output shortens long ones; JSON keeps them.
-fn display_type(ty: &Type) -> String {
-    tidy_generics(compact(ty))
-}
-
-/// Drops lifetimes (`'a, ` / `, 'a` / `<'a>` / `&'a ` / ` + 'a`) from a
-/// compact type or path string, and keeps char literals.
-fn tidy_generics(s: String) -> String {
-    let c: Vec<char> = s.chars().collect();
-    let is_ident = |ch: char| ch.is_alphanumeric() || ch == '_';
-    let mut out = String::new();
-    let mut i = 0;
-    while i < c.len() {
-        let lifetime = c[i] == '\'' && c.get(i + 1).is_some_and(|&n| n.is_alphabetic() || n == '_');
-        if !lifetime {
-            out.push(c[i]);
-            i += 1;
-            continue;
-        }
-        let mut j = i + 1;
-        while j < c.len() && is_ident(c[j]) {
-            j += 1;
-        }
-        if c.get(j) == Some(&'\'') {
-            out.extend(&c[i..=j]); // a char literal `'x'`
-            i = j + 1;
-            continue;
-        }
-        i = j;
-        let rest: String = c[i..c.len().min(i + 2)].iter().collect();
-        if rest == ", " {
-            i += 2;
-        } else if rest.starts_with(' ') {
-            i += 1;
-        } else {
-            for tail in [", ", " + "] {
-                if out.ends_with(tail) {
-                    out.truncate(out.len() - tail.len());
-                }
-            }
-        }
-    }
-    out.replace("<>", "")
-}
-
-fn is_struct_literal(block: &Block) -> bool {
-    matches!(block.stmts.as_slice(), [Stmt::Expr(Expr::Struct(_), None)])
-}
-
-/// The `#[cfg(..)]` predicates among the attributes, as strings.
-fn cfg_attrs(attrs: &[Attribute]) -> Vec<String> {
-    attrs
-        .iter()
-        .filter(|a| a.path().is_ident("cfg"))
-        .map(|a| a.meta.to_token_stream().to_string())
-        .collect()
-}
-
-fn path_segments(path: &syn::Path) -> Vec<String> {
-    path.segments.iter().map(|s| s.ident.to_string()).collect()
-}
-
-pub fn last_segment(path: &syn::Path) -> String {
-    path.segments
-        .last()
-        .map(|s| s.ident.to_string())
-        .unwrap_or_default()
-}
-
-/// Token string without the spaces `to_string` puts around punctuation.
-pub fn compact(t: &impl ToTokens) -> String {
-    t.to_token_stream()
-        .to_string()
-        .replace(" :: ", "::")
-        .replace(" . ", ".")
-        .replace(" < ", "<")
-        .replace("::< ", "::<")
-        .replace(" >", ">")
-        .replace("& ", "&")
-        .replace(" ,", ",")
-        .replace(",>", ">")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{fact, facts, facts_with};
+    use crate::testutil::{fact, facts};
 
     fn refs(f: &FileFacts, name: &str) -> (u32, u32) {
         let get = |m: &HashMap<String, u32>| m.get(name).copied().unwrap_or(0);
@@ -1569,23 +1144,6 @@ mod tests {
     }
 
     #[test]
-    fn evaluates_cfg_predicates() {
-        let test = |cfg: &str| {
-            let f = facts_with(&format!("#[cfg({cfg})]\nfn f() {{}}"), &["testdb"]);
-            fact(&f, "f").in_test
-        };
-        assert!(test("test"));
-        assert!(test("all(test, not(miri))"));
-        assert!(test("all(unix, test)"));
-        assert!(test("any(test, feature = \"testdb\")"));
-        assert!(test("feature = \"testdb\""));
-        assert!(!test("not(test)"));
-        assert!(!test("any(test, feature = \"esp32\")"));
-        assert!(!test("all(feature = \"contest\", unix)"));
-        assert!(facts("#![cfg(test)]\nfn f() {}").file_test);
-    }
-
-    #[test]
     fn records_decls_with_inline_path_and_path_attr() {
         let f = facts("mod inner { #[cfg(test)] mod tests; }\n#[path = \"x_tests.rs\"]\nmod x;");
         assert_eq!(f.mod_decls[0].inline_path, vec!["inner"]);
@@ -1600,55 +1158,6 @@ mod tests {
         assert!(f.mod_decls[0].test);
         assert_eq!(fact(&f, "spawn").line, 4);
         assert_eq!(refs(&f, "spawn"), (0, 0));
-    }
-
-    #[test]
-    fn detects_forwarding() {
-        let f = facts(
-            r#"
-            struct S { inner: Inner }
-            impl S {
-                fn get(&self, k: &str) -> Option<u32> { self.inner.get(k) }
-                async fn load(&self, id: u64) -> Result<Thing> { Ok(self.inner.load(id).await?) }
-                fn real(&self, k: &str) -> u32 { self.inner.get(k).map(|v| v + 1).unwrap_or(0) }
-                fn field(&self) -> &Inner { &self.inner }
-                fn magic(&self) -> u32 { helper(MAGIC) }
-                pub fn new() -> Self { Self::default() }
-                fn wrap(raw: u64) -> Self { Id(raw) }
-                fn special(&self, x: u8) -> bool { self.inner.is::<X>(x) }
-            }
-            impl Display for S { fn fmt(&self, f: &mut Formatter) -> fmt::Result { self.inner.fmt(f) } }
-            fn make(a: u32) -> Foo { Foo::new(a) }
-            fn run(a: u32) { work_loop::<T>(a) }
-            fn timeout() -> Duration { Duration::from_secs(30) }
-            pub extern "C" fn ffi(x: u32) -> u32 { helper(x) }
-            #[cfg(unix)]
-            fn stub(x: u32) -> u32 { helper(x) }
-            #[pymethods]
-            impl S { fn exported(&self, k: &str) -> u32 { self.inner.get(k) } }
-            "#,
-        );
-        let fwd = |n: &str| fact(&f, n).forwards_to.clone();
-        assert_eq!(fwd("S::get").as_deref(), Some("self.inner.get"));
-        assert_eq!(fwd("S::load").as_deref(), Some("self.inner.load"));
-        assert_eq!(fwd("make").as_deref(), Some("Foo::new"));
-        for n in [
-            "S::real",
-            "S::field",
-            "S::magic",
-            "S::new",
-            "S::wrap",
-            "S::special",
-            "<S as Display>::fmt",
-            "run",
-            "timeout",
-            "ffi",
-            "stub",
-            "S::exported",
-        ] {
-            assert_eq!(fwd(n), None, "{n}");
-        }
-        assert!(fact(&f, "S::exported").exempt);
     }
 
     #[test]
@@ -1718,77 +1227,6 @@ mod tests {
     }
 
     #[test]
-    fn nested_items_and_macro_impls() {
-        let f = facts(
-            "fn outer() {\n    let a = 1;\n    fn inner() {\n        let b = 2;\n    }\n}\nmacro_rules! m { ($t:ty) => { impl $crate::Tr<u8> for $t {} }; }",
-        );
-        assert_eq!(fact(&f, "outer").nested, vec![(3, 5)]);
-        assert_eq!(
-            f.macro_impls,
-            vec![vec!["crate".to_string(), "Tr".to_string()]]
-        );
-    }
-
-    #[test]
-    fn body_hashes_separate_renames_from_literals_and_callees() {
-        let f = facts(
-            r#"
-            fn a(x: u32) -> u32 {
-                let y = x + 1;
-                y * 2
-
-            }
-            fn b(q: u32) -> u32 {
-                let z = q + 7;
-                z * 2
-
-            }
-            fn c(x: u32) -> u32 {
-                let y = x + 1;
-                y * 2
-
-            }
-            fn d(x: u32) -> u32 {
-                let y = x + 9;
-                y * 2
-
-            }
-            fn e(x: u32) -> u32 {
-                let y = other(x);
-                y * 2
-
-            }
-            fn g(x: u32) -> u32 {
-                let y = thing(x);
-                y * 2
-
-            }
-            "#,
-        );
-        let h = |n: &str| fact(&f, n).body_hash.unwrap();
-        assert_eq!(h("a"), h("c"));
-        assert_ne!(h("a").exact, h("b").exact);
-        assert_eq!(h("a").shape, h("b").shape);
-        assert_ne!(h("a").names, h("b").names);
-        // Only a literal differs: same names hash.
-        assert_eq!(h("a").names, h("d").names);
-        // Different callee: different shape.
-        assert_ne!(h("e").shape, h("g").shape);
-    }
-
-    #[test]
-    fn tidy_generics_drops_lifetimes_only() {
-        for (input, want) in [
-            ("&'static str", "&str"),
-            ("Box<dyn Fn() + 'params>", "Box<dyn Fn()>"),
-            ("Node<'p, A>", "Node<A>"),
-            ("Foo<'x'>", "Foo<'x'>"),
-        ] {
-            assert_eq!(tidy_generics(input.to_string()), want);
-        }
-    }
-
-    #[test]
     fn type_self_mentions_are_tracked_apart() {
         let f = facts(
             "enum State { A, B }\nimpl State {\n    fn next(self) -> State { match self { State::A => State::B, _ => State::A } }\n}\nfn user() -> State { State::A }\nstruct List { next: Option<Box<List>> }",
@@ -1796,39 +1234,6 @@ mod tests {
         assert_eq!(f.type_self_refs.get("State"), Some(&4));
         assert_eq!(refs(&f, "State").0, 6);
         assert_eq!(f.type_self_refs.get("List"), Some(&1));
-    }
-
-    #[test]
-    fn test_like_cfgs() {
-        let test = |cfg: &str| {
-            let f = facts(&format!("#[cfg({cfg})]\nfn f() {{}}"));
-            fact(&f, "f").in_test
-        };
-        assert!(test("any(test, doc)"));
-        assert!(test("loom"));
-        assert!(test("any(test, fuzzing)"));
-        assert!(!test("doc"));
-        assert!(!test("any(test, unix)"));
-    }
-
-    #[test]
-    fn cfg_if_mod_decls_are_seen() {
-        let f = facts(
-            "cfg_if::cfg_if! {\n    if #[cfg(unix)] {\n        mod unix;\n    } else {\n        #[path = \"win.rs\"]\n        mod windows;\n    }\n}\ncfg_if::cfg_if! { if #[cfg(test)] { mod tests; } }",
-        );
-        let decls: Vec<_> = f
-            .mod_decls
-            .iter()
-            .map(|d| (d.name.as_str(), d.path_attr.as_deref(), d.test))
-            .collect();
-        assert_eq!(
-            decls,
-            vec![
-                ("unix", None, false),
-                ("windows", Some("win.rs"), false),
-                ("tests", None, true)
-            ]
-        );
     }
 
     #[test]
@@ -1867,13 +1272,5 @@ mod tests {
         for n in ["helper", "t", "S::only"] {
             assert!(fact(&f, n).metrics.is_none(), "{n}");
         }
-    }
-
-    #[test]
-    fn display_type_keeps_generics_without_lifetimes() {
-        let ty: Type = syn::parse_str("Node<'p, Async, Sync>").unwrap();
-        assert_eq!(display_type(&ty), "Node<Async, Sync>");
-        let ty: Type = syn::parse_str("Wrapper<'a>").unwrap();
-        assert_eq!(display_type(&ty), "Wrapper");
     }
 }

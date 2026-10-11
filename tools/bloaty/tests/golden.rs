@@ -3,12 +3,9 @@
 //! tests/golden/*.json. `UPDATE_GOLDEN=1 cargo test --test golden` rewrites
 //! them; review the diff like code.
 //!
-//! The fixture is copied to a temporary directory first: in place, the
-//! repository's tests/fixtures/.bloatyignore hides it (so it doesn't skew
-//! bloaty's view of itself), and with an empty `.git` of its own its root is
-//! the fixture itself, whatever repository or Cargo.toml surrounds the temp
-//! dir. Absolute paths become `<ws>`, so the files are the same on
-//! every machine.
+//! The fixture is copied to a temporary directory first (see
+//! tests/common/mod.rs). Absolute paths become `<ws>`, so the files are the
+//! same on every machine.
 //!
 //! Fixture roles (fxcore unless noted): hot.rs (long, branchy, deeply nested
 //! fn: hot by size and complexity, a fn that is genuinely long),
@@ -16,7 +13,9 @@
 //! allowed.rs (`#[allow(clippy::too_many_lines)]`: noted), dispatch.rs (a
 //! wide dispatch whose arms repeat a prelude: noted; and a small clean
 //! one), badarm.rs (a dispatch with one bad arm: warm, pointing at the
-//! arm), dup_a.rs + fxapp's dup_b.rs (duplicate across crates), shapes.rs
+//! arm), dup_a.rs + fxapp's dup_b.rs (duplicates: one fn in two crates
+//! and a test, short identical free fns, a short body on two types (a
+//! note), forwarding bodies with long signatures that are none), shapes.rs
 //! (single-impl trait, unused fn), long.rs / branchy.rs / f01..f20.rs
 //! (ordinary code, so ranks mean something: warm needs >= 20 scored files,
 //! and 4 warm slots >= 31), lib.rs (`#[cfg(test)]` module, a `#[path]` test
@@ -24,66 +23,11 @@
 //! shared.rs (clones), tests/it.rs (whole-test file), build.rs and fxapp's
 //! examples/ (support: measured, never scored).
 
+mod common;
+
+use common::Ws;
 use serde_json::Value;
-use std::path::{Path, PathBuf};
-use std::process::Command;
-
-fn copy_dir(from: &Path, to: &Path) {
-    std::fs::create_dir_all(to).unwrap();
-    for entry in std::fs::read_dir(from).unwrap() {
-        let entry = entry.unwrap();
-        let name = entry.file_name();
-        if name == "target" || name == "Cargo.lock" {
-            continue;
-        }
-        let (src, dst) = (entry.path(), to.join(&name));
-        if entry.file_type().unwrap().is_dir() {
-            copy_dir(&src, &dst);
-        } else {
-            std::fs::copy(&src, &dst).unwrap();
-        }
-    }
-}
-
-/// A fresh copy of the fixture, removed on drop.
-struct Ws(PathBuf);
-
-impl Ws {
-    /// `tag` keeps the tests, which run in parallel, apart.
-    fn new(tag: &str) -> Self {
-        let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let dir = std::env::temp_dir().join(format!("bloaty-golden-{}-{tag}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        copy_dir(&manifest.join("tests/fixtures/ws"), &dir.join("ws"));
-        // Its own repository: a git checkout or Cargo.toml around the temp
-        // dir can't move the workspace root.
-        std::fs::create_dir_all(dir.join("ws/.git")).unwrap();
-        Ws(dir.join("ws").canonicalize().unwrap())
-    }
-
-    /// `bloaty args` in the copy, its JSON with the copy's path as `<ws>`.
-    fn run(&self, args: &[&str]) -> Value {
-        let out = Command::new(env!("CARGO_BIN_EXE_bloaty"))
-            .args(args)
-            .current_dir(&self.0)
-            .output()
-            .unwrap();
-        let stdout = String::from_utf8(out.stdout).unwrap();
-        assert!(
-            out.status.success(),
-            "bloaty {args:?}: {}",
-            String::from_utf8_lossy(&out.stderr)
-        );
-        let ws = self.0.to_str().unwrap();
-        serde_json::from_str(&stdout.replace(ws, "<ws>")).unwrap()
-    }
-}
-
-impl Drop for Ws {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(self.0.parent().unwrap());
-    }
-}
+use std::path::Path;
 
 /// Compares `v` to tests/golden/`name`.json, or rewrites it.
 fn golden(name: &str, v: &Value) {
@@ -126,7 +70,7 @@ fn group<'a>(summary: &'a Value, name: &str) -> &'a Value {
 #[test]
 fn summary_by_file() {
     let v = Ws::new("summary").run(&["summary", ".", "--by", "file", "--json"]);
-    assert_eq!(v["schema"], 3);
+    assert_eq!(v["schema"], 6);
     // What the fixture is for: each role still plays out.
     let level = |name: &str| -> Value { group(&v, name)["smell"]["level"].clone() };
     assert_eq!(level("core/src/hot.rs"), "hot");
@@ -178,7 +122,7 @@ fn summary_by_file() {
 #[test]
 fn findings() {
     let v = Ws::new("findings").run(&["findings", ".", "--json", "--top", "0"]);
-    assert_eq!(v["schema"], 3);
+    assert_eq!(v["schema"], 6);
     let kinds: Vec<&str> = v["findings"]
         .as_array()
         .unwrap()
@@ -188,13 +132,47 @@ fn findings() {
     for kind in ["duplicate", "unused", "single_impl_trait", "long_fn"] {
         assert!(kinds.contains(&kind), "no {kind} in {kinds:?}");
     }
+    // Duplicates: (copies, rule, tier, category).
+    let dups: Vec<(Vec<&str>, &str, &str, &str)> = v["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|f| f["kind"] == "duplicate")
+        .map(|f| {
+            let copies = f["copies"].as_array().unwrap();
+            (
+                copies.iter().map(|c| c["name"].as_str().unwrap()).collect(),
+                f["rule"].as_str().unwrap(),
+                f["tier"].as_str().unwrap(),
+                f["category"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        dups,
+        [
+            (
+                vec!["adler", "checksum", "reference"],
+                "crates",
+                "finding",
+                "impl"
+            ),
+            (vec!["plus", "add"], "identical", "finding", "impl"),
+            (
+                vec!["Left::twice", "Right::twice"],
+                "signatures",
+                "note",
+                "impl"
+            ),
+        ]
+    );
     golden("findings", &v);
 }
 
 #[test]
 fn metrics() {
     let v = Ws::new("metrics").run(&["metrics", ".", "--json"]);
-    assert_eq!(v["schema"], 3);
+    assert_eq!(v["schema"], 6);
     let sites: Vec<&str> = v["functions"]
         .as_array()
         .unwrap()

@@ -1,10 +1,42 @@
 Ranked hints of bloat: where to look, not what to delete.
 
 Kinds, in the order worth working through:
-  duplicate          fns with identical bodies (or, for long ones, the same
-                     shape with different names): extract one helper.
-                     `identical` says which; copies across crates need a
-                     shared dependency.
+  duplicate          the same code more than once: an identical (or, for
+                     long bodies, same-shape: names or literals differ;
+                     `identical` says which) body and the same written
+                     signature (parameter and return types, receiver,
+                     generics and where clause, qualifiers; for methods
+                     the impl's Self type, generics and trait; names
+                     ignored). A body counts by its own logic, not its
+                     text: --min-dup lines after the signature, and at
+                     least 1 piece of logic (an operator, a branch or
+                     loop, a closure, a call or macro given arguments;
+                     constructors like `Self(x)` don't count), so bodies
+                     that only forward to `self` or to another fn never
+                     count. Identical free fns and inherent methods of
+                     impl code count however short. Each group is reported
+                     once with every copy and the facts about it: per copy
+                     `crate`, `test`, `cfgs`, `signature`, `class` (its
+                     signature among the group's); per group `crates`,
+                     `depends` ([a, b]: a depends on b directly, per
+                     Cargo.toml), `rule`, `hint`. `tier`: `finding` (worth
+                     acting on; identical copies under different cfgs
+                     too) or `note` (listed after findings, not marked in
+                     the editor, counted in `duplicate_notes`): equal
+                     bodies under different signatures (`differs` names
+                     the parts: an owned/borrowed pair, typestates, one
+                     body on two types) or same-shape cfg variants of one
+                     crate. Hints are advice, not claims.
+                     Limits: names aren't resolved (same-named items in
+                     different files or crates, like consts or imported
+                     types, count as the same); signatures compare as
+                     written: lifetimes ignored, generic parameter names
+                     as written (`<T>` vs `<U>`, `<T: X>` vs `where T: X`,
+                     predicate order all differ), `Self` differs from the
+                     concrete type, an alias from its type; bodies that
+                     differ only in literals are data, never duplicates;
+                     whether copies can call each other (visibility,
+                     re-exports, types) isn't checked.
   unused             fns/types/traits nothing references, or only tests
                      (incl. doctests) do. Name-based, so verify: after
                      removing, run `cargo check --workspace --all-targets
@@ -25,11 +57,12 @@ Kinds, in the order worth working through:
                      body is one call passing their inputs to another
                      workspace fn. Mostly a judgement call.
 
-Within a kind, impl code ranks before test code and private before pub.
-`category` says impl or test. `lines` counts code lines: the item's own
-(plus its impl blocks for unused types), the largest copy for duplicates,
-test lines for test-heavy. `lines_saved` is at most what keeping one copy
-saves.
+Within a kind, impl code ranks before test code and private before pub;
+duplicate notes come last. `category` says impl or test (a duplicate is
+impl if any copy is). `lines` counts code lines: the item's own (plus its
+impl blocks for unused types), the largest copy's lines after its
+signature (at least 1) for duplicates, test lines for test-heavy.
+`lines_saved` is at most what keeping one copy saves.
 
 JSON per finding: `path` (absolute) and `file` (relative to `root`), `line`
 (the name, to jump to), `start_line`..=`end_line` (the whole item with docs
@@ -44,4 +77,7 @@ the repository may use them: `hidden_pub` counts them. Mark internal crates
 `publish = false`) to have them checked, or pass --include-pub.
 
 The JSON report also has `root`, `thresholds`, `test_features`, `totals` and
-`shown` per kind (what --top kept).
+`shown` per kind (what --top kept; duplicate notes apart, in
+`duplicate_notes` {total, shown}), and per criterion how many groups of
+copies with equal text weren't duplicates after all (`excluded_duplicates`:
+`substance`).

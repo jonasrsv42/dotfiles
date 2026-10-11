@@ -28,8 +28,8 @@
 --   B (in tree)    explain the file/directory under the cursor
 --   <leader>bb     toggle the lens in this buffer
 --   <leader>bl     quickfix list: this file's culprits, excused fns,
---                  findings (each duplicate copy / trait impl too) and
---                  panic sites
+--                  findings (each duplicate copy / trait impl too), panic
+--                  sites, then duplicate notes
 --   <leader>bi     float: the fn under the cursor's numbers and findings
 --   :BloatyRefresh recompute now (also re-checks refused roots)
 
@@ -63,7 +63,7 @@ local MARK_KINDS = { "duplicate", "unused", "single-impl-trait" }
 local DEBOUNCE_MS = 1500
 -- The `--json` format this code reads (bloaty's `schema` field). Older or
 -- unversioned output is refused, not misread.
-local SCHEMA = 3
+local SCHEMA = 6
 -- Called with (dir, root data) when a root's runs finish (the lens).
 local listeners = {}
 
@@ -149,9 +149,13 @@ local function run(args, cwd, cb)
   return ok and job or nil
 end
 
--- Where a finding is, per file: { kind, name, line, detail, others = {
--- {name, file, path, line} } }. A duplicate is at each copy, its others
--- the other copies; a single-impl trait's others are its impls.
+-- Where a finding is, per file: { kind, name, line, detail, note, test,
+-- dup, others = { {name, file, path, line} } }. A duplicate is at each
+-- copy, its others the other copies, `dup` the group (facts: `identical`,
+-- `crates`, `depends`, `differs`, `hint`, `rule`, copies with their
+-- signature `class`), `note` true for a note-tier one and `test` for a
+-- test copy (both listed, never marked); a single-impl trait's others are
+-- its impls.
 local function file_findings(by_file, finding)
   local function at(path, entry)
     by_file[path] = by_file[path] or {}
@@ -167,7 +171,7 @@ local function file_findings(by_file, finding)
       end
       at(c.path, {
         kind = finding.kind, name = c.name, line = c.line, detail = finding.detail,
-        identical = finding.identical, others = others,
+        note = finding.tier == "note", test = c.test, dup = finding, others = others,
       })
     end
   else
@@ -254,13 +258,16 @@ local function refresh(dir)
   end
   local findings = run(args, dir, function(f, code)
     for _, finding in ipairs(f and f.findings or {}) do
-      -- Like the counts, marks are about implementation code.
+      -- Like the counts, marks are about implementation code; duplicate
+      -- notes and test copies are listed, never marked.
       if finding.category ~= "test" then
-        -- Every copy of a duplicate is a place to look.
-        for _, p in ipairs(finding.copies or { finding }) do
-          up(p.path, r.real, function(d)
-            marks[d] = (marks[d] or 0) + 1
-          end)
+        -- Every impl copy of a duplicate is a place to look.
+        for _, p in ipairs(finding.tier ~= "note" and (finding.copies or { finding }) or {}) do
+          if not p.test then
+            up(p.path, r.real, function(d)
+              marks[d] = (marks[d] or 0) + 1
+            end)
+          end
         end
         file_findings(by_file, finding)
       end

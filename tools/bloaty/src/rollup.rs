@@ -427,6 +427,68 @@ mod tests {
     }
 
     #[test]
+    fn an_allowed_table_at_the_ceiling_is_excused_as_a_table() {
+        // 80 lines: twice the bar, so the allow no longer holds.
+        let entries: String = (0..76).map(|i| format!("        {i},\n")).collect();
+        let src = format!(
+            "#[allow(clippy::too_many_lines)]\nfn t() -> Vec<u32> {{\n    vec![\n{entries}    ]\n}}\n"
+        );
+        let fx = Fixture::new(&[
+            ("Cargo.toml", "[package]\nname = \"m\"\n"),
+            ("src/lib.rs", &src),
+        ]);
+        let scan = fx.scan();
+        let eff = effective_metrics(&scan.files[0], 100).unwrap();
+        let x = &eff.excused[0];
+        assert_eq!(x.own[0], 80);
+        assert_eq!(x.excuses, [Excuse::Table { entries: 76 }]);
+        // The literal's 78 lines are excused; complexity is not.
+        let value = |i: usize| x.effective[i].as_ref().map(|s| s.value);
+        assert_eq!((value(0), value(1)), (Some(2), Some(1)));
+    }
+
+    #[test]
+    fn excuse_for_names_the_excuse_that_lowered_a_measure() {
+        let stand = |value| Some(Stand { value, arm: None });
+        let score = |effective, excuses| FnScore {
+            name: "f".into(),
+            line: 1,
+            own: [50, 20, 2],
+            effective,
+            excuses,
+            worst_arms: None,
+        };
+        let x = score(
+            [None, stand(5), stand(2)],
+            vec![
+                Excuse::Allowed {
+                    lint: Lint::TooManyLines,
+                },
+                Excuse::Dispatch {
+                    arms: 4,
+                    repeat: None,
+                },
+            ],
+        );
+        assert_eq!(
+            x.excuse_for(Measure::CyclomaticComplexity),
+            Some(&Excuse::Dispatch {
+                arms: 4,
+                repeat: None
+            })
+        );
+        // Not lowered.
+        assert_eq!(x.excuse_for(Measure::Nesting), None);
+        let t = score(
+            [stand(50), stand(5), stand(2)],
+            vec![Excuse::Table { entries: 4 }],
+        );
+        assert_eq!(t.excuse_for(Measure::Lines), None);
+        // Lowered, but a table excuses only lines.
+        assert_eq!(t.excuse_for(Measure::CyclomaticComplexity), None);
+    }
+
+    #[test]
     fn dispatches_count_every_arm_that_isnt_small() {
         // Three heavy arms (16 lines, cc 4) behind five one-line ones.
         let heavy = |i: usize| {

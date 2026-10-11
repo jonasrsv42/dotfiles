@@ -2,7 +2,7 @@
 //! second, small walk over each non-test fn body, separate from the main
 //! visitor in `visit`.
 
-use crate::visit::last_segment;
+use crate::visit::syntax::last_segment;
 use proc_macro2::{Delimiter, TokenStream, TokenTree};
 use serde::Serialize;
 use syn::parse::Parser;
@@ -184,35 +184,11 @@ impl MetricsWalk {
             match tt {
                 TokenTree::Group(g) => self.scan_tokens(g.stream()),
                 TokenTree::Ident(id) => {
-                    let after_dot =
-                        i > 0 && matches!(&toks[i - 1], TokenTree::Punct(p) if p.as_char() == '.');
-                    // Number of call arguments, if a call follows.
-                    let args = match toks.get(i + 1) {
-                        Some(TokenTree::Group(g)) if g.delimiter() == Delimiter::Parenthesis => {
-                            Some(top_level_args(g.stream()))
-                        }
-                        _ => None,
-                    };
-                    let is_punct = |j: usize, c: char| matches!(toks.get(j), Some(TokenTree::Punct(p)) if p.as_char() == c);
-                    let panic = match args {
-                        Some(0) => after_dot && id == "unwrap",
-                        Some(1) => after_dot && id == "expect" && !is_punct(i + 2, '?'),
-                        Some(_) => false,
-                        None => {
-                            !after_dot
-                                && is_punct(i + 1, '!')
-                                && PANIC_MACROS.iter().any(|m| id == m)
-                        }
-                    };
-                    if panic {
-                        let kind = if after_dot {
-                            id.to_string()
-                        } else {
-                            format!("{id}!")
-                        };
+                    if let Some(kind) = token_panic(&toks, i, id) {
                         self.panic_at(id.span(), kind);
                     }
-                    self.m.clones += u32::from(after_dot && args == Some(0) && id == "clone");
+                    let clone = id == "clone" && call_args(&toks, i) == Some(0);
+                    self.m.clones += u32::from(clone && punct_at(&toks, i.wrapping_sub(1), '.'));
                 }
                 _ => {}
             }
@@ -341,6 +317,40 @@ impl<'ast> Visit<'ast> for MetricsWalk {
 
 /// Comma-separated arguments in a call's parentheses (a trailing comma
 /// doesn't add one).
+/// Whether `toks[j]` is the punctuation `c`.
+fn punct_at(toks: &[TokenTree], j: usize, c: char) -> bool {
+    matches!(toks.get(j), Some(TokenTree::Punct(p)) if p.as_char() == c)
+}
+
+/// The number of arguments of a call right after `toks[i]`, if one follows.
+fn call_args(toks: &[TokenTree], i: usize) -> Option<usize> {
+    match toks.get(i + 1) {
+        Some(TokenTree::Group(g)) if g.delimiter() == Delimiter::Parenthesis => {
+            Some(top_level_args(g.stream()))
+        }
+        _ => None,
+    }
+}
+
+/// The panic kind if the ident `toks[i]` starts a panic site in raw tokens:
+/// `. unwrap ( )`, `. expect ( x )` not followed by `?`, `panic ! ..`.
+fn token_panic(toks: &[TokenTree], i: usize, id: &proc_macro2::Ident) -> Option<String> {
+    let after_dot = punct_at(toks, i.wrapping_sub(1), '.');
+    let panic = match call_args(toks, i) {
+        Some(0) => after_dot && id == "unwrap",
+        Some(1) => after_dot && id == "expect" && !punct_at(toks, i + 2, '?'),
+        Some(_) => false,
+        None => !after_dot && punct_at(toks, i + 1, '!') && PANIC_MACROS.iter().any(|m| id == m),
+    };
+    panic.then(|| {
+        if after_dot {
+            id.to_string()
+        } else {
+            format!("{id}!")
+        }
+    })
+}
+
 fn top_level_args(ts: TokenStream) -> usize {
     let mut n = 0;
     let mut pending = false;
@@ -405,6 +415,10 @@ mod tests {
         // A match arm's own `{ }` is not a level; a block inside it is.
         assert_eq!(depth("match x { A => { if y { a() } } _ => {} }"), 2);
         assert_eq!(depth("match x { A => { { a() } } _ => {} }"), 2);
+        // A labelled block is a level, even as an arm's body.
+        assert_eq!(depth("match x { A => 'l: { a() } _ => {} }"), 2);
+        let arm: syn::Arm = syn::parse_str("A => 'l: { if x { 1 } else { 2 } }").unwrap();
+        assert_eq!(arm_metrics(&arm).nesting, 2);
         assert_eq!(depth("let g = || { if x { a() } };"), 2);
         assert_eq!(depth("unsafe { a() }"), 1);
         assert_eq!(depth("let y = async { loop { if z { a() } } };"), 3);
@@ -498,11 +512,32 @@ mod tests {
         let m = |body: &str| metrics(&format!("fn f() -> R {{ {body} }}"), "f");
         assert_eq!(m("p.expect(Token::Comma)?; Ok(())").panics, 0);
         assert_eq!(m("p.expect(Token::Comma)?; Ok(())").complexity, 1);
-        // Token scan: one argument and no `?` only.
+        // Other `?` operands are walked as usual.
         assert_eq!(
-            m("m!(p.expect(t)?; q.expect(a, b); r.expect(\"x\"))").panics,
-            1
+            m("let x = h(if a { 1 } else { 2 })?; Some(x)").complexity,
+            2
         );
+        assert_eq!(m("let x = o.unwrap()?; Some(x)").panics, 1);
+    }
+
+    #[test]
+    fn token_scan_finds_calls_by_their_arguments() {
+        // `a;` first keeps `p.expect` off token 2, where i + 2 == i * 2.
+        let src = "fn f() -> R { m!(a; p.expect(t)?; q.expect(a, b); r.expect(\"x\"); s.expect(c::MSG); t.expect[i]; panic!(\"y\"); unreachable; format!(\"z\")) }";
+        let f = facts(src);
+        let kinds: Vec<_> = fact(&f, "f")
+            .panic_sites
+            .iter()
+            .map(|s| s.kind.as_str())
+            .collect();
+        assert_eq!(kinds, ["expect", "expect", "panic!"]);
+    }
+
+    #[test]
+    fn expr_complexity_counts_from_one() {
+        let cc = |src: &str| expr_complexity(&syn::parse_str(src).unwrap());
+        assert_eq!(cc("x"), 1);
+        assert_eq!(cc("if c { x } else { 0 }"), 2);
     }
 
     #[test]

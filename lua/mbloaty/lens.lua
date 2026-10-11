@@ -2,7 +2,7 @@
 -- smell dot (the culprits among the signals in `smell.dims`) and its `•`
 -- (duplicate / unused / single-impl-trait findings), as a terse verdict plus
 -- evidence at the end of the line:
---   ◂ split? 100 lines · cc 14
+--   ◂ split? 100 lines · cyclomatic complexity 14
 --   ◂ simplify? cyclomatic complexity 12 · arm Op::Rebalance 11   (at a dispatch's arm)
 --   ◂ duplicate · pollen/sys.rs:27
 -- and, in blue, what was excused from the score (the whole story of a noted
@@ -63,7 +63,9 @@ local function layout(g, fl, this)
     place(n, false)
   end
   for _, f in ipairs(text.by_line(fl)) do
-    place(text.finding_note(f, this), false)
+    if not (f.note or f.test) then
+      place(text.finding_note(f, this), false)
+    end
   end
   for _, c in ipairs(cs) do
     for _, s in ipairs(c.sites or {}) do
@@ -181,10 +183,10 @@ local function current()
   return buf, path, g, fl or {}
 end
 
---- Fills the quickfix list with the file's culprits, excused fns (each
---- repeat of a dispatch's prelude too), findings (other duplicate copies
---- and trait impls as entries of their own) and, when it has any, its
---- panic sites (from a fresh `bloaty metrics` run).
+--- Fills the quickfix list with the file's culprits, blue notes (each
+--- copy of a dispatch's shared prefix too), findings (other duplicate copies
+--- and trait impls as entries of their own), duplicate notes and, when it
+--- has any, its panic sites (from a fresh `bloaty metrics` run).
 function M.qflist()
   local buf, path, g, fl = current()
   if not buf then
@@ -195,22 +197,38 @@ function M.qflist()
   local function add(file, line, entry)
     table.insert(items, { filename = file, lnum = line, text = entry })
   end
+  -- The file's level is in the title; culprits on one line merge, like the
+  -- lens (`split? f: 68 lines · cyclomatic complexity 8`); blue notes say so.
+  local last
   for _, c in ipairs(text.culprits(g, true)) do
-    add(path, c.line, string.format("%s (%s)", c.list, g.smell.level))
+    if last and last.lnum == c.line and last.filename == path then
+      last.text = last.text .. " · " .. c.merged
+    else
+      add(path, c.line, c.list)
+      last = items[#items]
+    end
   end
   for _, n in ipairs(text.notes(g)) do
-    add(path, n.line, n.list .. " (noted)")
+    add(path, n.line, "note: " .. n.list)
     for i, line in ipairs(n.prelude and n.prelude.at or {}) do
       add(path, line, string.format("  shared prefix %d/%d", i, n.prelude.count))
     end
   end
-  for _, f in ipairs(text.by_line(fl)) do
-    add(path, f.line, text.finding_note(f, g.path).list)
-    local label = f.kind == "duplicate" and "copy" or "impl"
-    for _, o in ipairs(f.others) do
-      add(o.path, o.line, string.format("  %s: %s · %s", label, text.short(o.name), text.where(o, g.path)))
+  -- Findings, then duplicate notes (`note: same body as ...`).
+  local function findings(notes)
+    for _, f in ipairs(text.by_line(fl)) do
+      if (f.note or false) == notes then
+        add(path, f.line, notes and text.dup_line(f) or text.finding_note(f, g.path).list)
+        local label = f.kind == "duplicate" and "copy" or "impl"
+        for _, o in ipairs(f.others) do
+          local name = f.kind == "duplicate" and text.fn_name(o.name) or text.short(o.name)
+          add(o.path, o.line, string.format("  %s: %s · %s", label, name, text.where(o, g.path)))
+        end
+      end
     end
   end
+  findings(false)
+  findings(true)
   local function show()
     if not vim.api.nvim_win_is_valid(win) then
       return
@@ -220,7 +238,7 @@ function M.qflist()
     end
     -- A new list on the quickfix stack (:colder brings the previous back);
     -- step through it with :cnext / :cprevious.
-    vim.fn.setqflist({}, " ", { title = "bloaty: " .. vim.fn.fnamemodify(path, ":~:."), items = items })
+    vim.fn.setqflist({}, " ", { title = "bloaty: " .. vim.fn.fnamemodify(path, ":~:.") .. (g.smell and g.smell.level and " (" .. g.smell.level .. ")" or ""), items = items })
     vim.api.nvim_win_call(win, function()
       vim.cmd("copen")
     end)
@@ -240,7 +258,7 @@ function M.qflist()
         end
         table.insert(items, {
           filename = path, lnum = s.line, col = col,
-          text = string.format("panic: %s in %s", s.kind, text.short(fn.name)),
+          text = string.format("panic: %s in %s", s.kind, text.fn_name(fn.name)),
         })
       end
     end
@@ -252,7 +270,7 @@ end
 -- summary group `g` and findings `fl`.
 local function info_lines(fn, g, fl)
   local lines = {
-    text.short(fn.name),
+    text.fn_name(fn.name),
     string.format("%d lines · cyclomatic complexity %d · nesting %d · %d params · %d clones",
       fn.lines, fn.cyclomatic_complexity, fn.nesting, fn.params, fn.clones),
   }
@@ -278,7 +296,8 @@ local function info_lines(fn, g, fl)
   end
   for _, f in ipairs(fl) do
     if fn.start_line <= f.line and f.line <= fn.end_line then
-      table.insert(lines, "◂ " .. text.finding_note(f, g.path).list)
+      local line = f.kind == "duplicate" and text.dup_line(f) or text.finding_note(f, g.path).list
+      table.insert(lines, "◂ " .. line)
     end
   end
   return lines

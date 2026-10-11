@@ -274,7 +274,7 @@ fn run(max_depth: usize) -> i32 {
 /// Version of the `--json` output, its first field `schema`. Bumped when a
 /// field consumers rely on changes or appears (the Neovim integration
 /// refuses older output rather than misread it).
-const SCHEMA: u32 = 3;
+const SCHEMA: u32 = 6;
 
 #[derive(serde::Serialize)]
 struct Versioned<'a, T> {
@@ -304,6 +304,7 @@ mod tests {
         let flat = |t: &str| t.split_whitespace().collect::<Vec<_>>().join(" ");
         let summary = flat(include_str!("help/summary.txt"));
         let metrics = flat(include_str!("help/metrics.txt"));
+        let findings = flat(include_str!("help/findings.txt"));
         let pct = |share: f64| (share * 100.0).round() as u32;
         for (text, phrase) in [
             (
@@ -393,6 +394,13 @@ mod tests {
                     shape::MIN_ARMS,
                     shape::SMALL_ARM_LINES,
                     shape::SMALL_ARM_COMPLEXITY
+                ),
+            ),
+            (
+                &findings,
+                format!(
+                    "at least {} piece of logic",
+                    crate::findings::duplicate::MIN_LOGIC
                 ),
             ),
         ] {

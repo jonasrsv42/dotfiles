@@ -761,6 +761,18 @@ mod tests {
         let l = levels_of(&dims);
         assert_eq!(l[18], Some(Level::Hot));
         assert_eq!(l.iter().filter(|x| x.is_some()).count(), 1);
+        // 20 files are enough for warm.
+        let l = levels_of(&vec![[0.8, 0.0, 0.0]; 20]);
+        assert_eq!(l.iter().filter(|&&x| x == Some(Level::Warm)).count(), 2);
+    }
+
+    #[test]
+    fn hot_goes_first_to_more_top_decile_dims() {
+        // Same front; the first has two dims >= 0.9, the second one.
+        let mut dims = vec![[0.9, 0.9, 0.0], [1.0, 0.0, 0.85]];
+        dims.extend(vec![[0.0; 3]; 18]);
+        let l = levels_of(&dims);
+        assert_eq!((l[0], l[1]), (Some(Level::Hot), Some(Level::Warm)));
     }
 
     fn file(lines: usize, cc: u32, panics: u32, impl_lines: usize) -> FileMetrics {
@@ -897,6 +909,77 @@ mod tests {
         assert_eq!(v["dims"][3]["dim"], "fragility");
     }
 
+    fn to(v: &[(FileMetrics, usize)]) -> Vec<Input<'_>> {
+        v.iter()
+            .map(|(m, l)| Input {
+                impl_lines: *l,
+                metrics: m,
+            })
+            .collect()
+    }
+
+    fn stand(value: u32) -> Option<crate::rollup::Stand> {
+        Some(crate::rollup::Stand { value, arm: None })
+    }
+
+    /// `build`, allowing too_many_lines.
+    fn allowed(own: [u32; 3]) -> FnScore {
+        FnScore {
+            name: "build".into(),
+            line: 1,
+            own,
+            effective: [None, stand(own[1]), stand(own[2])],
+            excuses: vec![Excuse::Allowed {
+                lint: crate::shape::Lint::TooManyLines,
+            }],
+            worst_arms: None,
+        }
+    }
+
+    /// 20 ordinary files (largest fns from `lines` up) and `last`, whose
+    /// fn `build` is `allowed(own)` and effectively 12 lines long; scored
+    /// with the excuses.
+    fn score_with_allowed(lines: usize, last: (FileMetrics, usize), own: [u32; 3]) -> Vec<Smell> {
+        let mut raw: Vec<(FileMetrics, usize)> =
+            (0..20).map(|i| (file(lines + i, 2, 0, 40), 40)).collect();
+        raw.push(last);
+        raw[20].0.excused.push(allowed(own));
+        let mut eff = raw.clone();
+        eff[20].0.largest_fn = Some(FnSize {
+            name: "small".into(),
+            line: 200,
+            lines: 12,
+            arm: None,
+        });
+        let p = paths(raw.len());
+        let p: Vec<&str> = p.iter().map(String::as_str).collect();
+        score_excusing(&to(&raw), &to(&eff), &p)
+    }
+
+    #[test]
+    fn excused_fns_past_the_bar_note_a_file_levelled_by_impl_lines() {
+        // Levelled by 2000 impl lines alone; its 45-line fn is excused and
+        // ranks below the other files' fns, so only the bar names it.
+        let s = score_with_allowed(50, (file(45, 2, 0, 2000), 2000), [45, 2, 1]);
+        assert_eq!(s[20].level, Some(Level::Noted));
+        assert_eq!(
+            s[20].why.as_deref(),
+            Some("noted: largest fn 45 lines (build) [allows too_many_lines]")
+        );
+    }
+
+    #[test]
+    fn hot_files_keep_noted_reasons_about_other_measures() {
+        let s = score_with_allowed(10, (file(120, 41, 0, 130), 130), [120, 41, 1]);
+        assert_eq!(s[20].level, Some(Level::Hot));
+        assert_eq!(
+            s[20].why.as_deref(),
+            Some(
+                "size: 130 impl lines; complexity: cyclomatic complexity 41 (<Node<…> as Build<…>>::build); noted: largest fn 120 lines (build) [allows too_many_lines]"
+            )
+        );
+    }
+
     #[test]
     fn excused_signals_make_a_file_noted_not_hot() {
         use crate::rollup::FnSize;
@@ -907,7 +990,6 @@ mod tests {
             (0..20).map(|i| (file(10 + i, 2, 0, 40), 40)).collect();
         raw.push((file(120, 2, 0, 130), 130));
         raw.push((file(120, 2, 0, 130), 130));
-        let stand = |value| Some(crate::rollup::Stand { value, arm: None });
         raw[21].0.excused.push(FnScore {
             name: "build".into(),
             line: 1,
@@ -925,14 +1007,6 @@ mod tests {
             lines: 12,
             arm: None,
         });
-        fn to(v: &[(FileMetrics, usize)]) -> Vec<Input<'_>> {
-            v.iter()
-                .map(|(m, l)| Input {
-                    impl_lines: *l,
-                    metrics: m,
-                })
-                .collect()
-        }
         let p = paths(raw.len());
         let p: Vec<&str> = p.iter().map(String::as_str).collect();
         let s = score_excusing(&to(&raw), &to(&eff), &p);
@@ -955,6 +1029,8 @@ mod tests {
         assert_eq!(v["level"], "noted");
         assert_eq!(v["dims"][0]["excused"]["kind"], "allowed");
         assert_eq!(v["dims"][0]["excused"]["lint"], "too_many_lines");
+        // Excused fns are never culprits, however long.
+        assert!(v["dims"][0].get("culprit").is_none());
         // Impl lines aren't excused: not among the noted reasons.
         assert!(s[21].dims.iter().all(|d| d.excused.is_some()));
 

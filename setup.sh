@@ -133,6 +133,7 @@ fi
 # bloaty (tools/bloaty): where code lives and where it's bloated in Rust projects.
 # Built from this repo; needs Rust >= 1.88. Optional, so a missing cargo only warns.
 # (Google's unrelated "Bloaty McBloatface" also installs a `bloaty`: check it's ours.)
+# After changing it: tools/bloaty/check.sh --install (checks, then reinstalls).
 if ! command -v cargo
 then
   echo "${fg_yellow}cargo not found - skipping bloaty. To get it:${reset}"

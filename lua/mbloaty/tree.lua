@@ -113,6 +113,14 @@ function M.explain(state)
   if r.marks[key] then
     table.insert(lines, string.format("%d bloat findings (bloaty findings %s)", r.marks[key], node.path))
   end
+  -- A file's duplicates with their facts, findings before notes.
+  for _, notes in ipairs({ false, true }) do
+    for _, f in ipairs(text.by_line(r.findings[key])) do
+      if f.dup and f.note == notes then
+        table.insert(lines, text.dup_line(f))
+      end
+    end
+  end
   text.say(table.concat(lines, "\n"))
 end
 

@@ -128,7 +128,7 @@ local function qf(rel)
   vim.cmd.edit(rel)
   lens.qflist()
   wait(rel .. " quickfix", function()
-    return vim.fn.getqflist({ title = 1 }).title == "bloaty: " .. rel
+    return vim.startswith(vim.fn.getqflist({ title = 1 }).title, "bloaty: " .. rel)
   end)
   local items = vim.tbl_map(function(it)
     return it.lnum .. " " .. it.text
@@ -176,8 +176,8 @@ local function test_column()
     { "BloatySmellHot", "BloatySmellWarm", "BloatySmellNoted" }, "column: dot colours hot / warm / noted")
   eq(column("core/src/long.rs"), { " ", " ", "   43 " }, "column: a long fn under the bar is plain")
   eq(column("core/src/f01.rs"), { " ", " ", "   13 " }, "column: cool file is plain")
-  eq(column("core/src", "directory"), { "•", "●", "  741 " }, "column: directory sums and inherits hot")
-  eq(column(""), { "•", " ", "  819 " }, "column: root row never gets a dot")
+  eq(column("core/src", "directory"), { "•", "●", "  751 " }, "column: directory sums and inherits hot")
+  eq(column(""), { "•", " ", "  829 " }, "column: root row never gets a dot")
   eq(column("Cargo.toml"), {}, "column: nothing on non-Rust files")
 
 end
@@ -227,7 +227,15 @@ local function test_lens()
   eq(marks(), { [3] = "◂ only impl: Square", [28] = "◂ unused" }, "lens: findings on shapes.rs")
 
   vim.cmd.edit("core/src/dup_a.rs")
-  eq(marks(), { [3] = "◂ duplicate of adler · src/dup_b.rs:3" }, "lens: duplicate across crates (at most two path components)")
+  eq(marks(), {
+    [3] = "◂ duplicate of adler() · src/dup_b.rs:3 +1",
+    [16] = "◂ duplicate of add() · line 18",
+    [18] = "◂ duplicate of plus() · line 16",
+  }, "lens: impl copies of finding-tier duplicates; the test copy (line 23) and the note (Left/Right::twice) are unmarked")
+
+  vim.cmd.edit("app/src/dup_b.rs")
+  eq(marks(), { [3] = "◂ duplicate of checksum() · src/dup_a.rs:3 +1" },
+    "lens: a copy in another crate names one (at most two path components)")
 
   vim.cmd.edit("core/src/f01.rs")
   eq(marks(), {}, "lens: no marks on a cool file")
@@ -242,30 +250,75 @@ local function test_quickfix()
     return #vim.fn.getqflist() > 0
   end)
   local q = vim.fn.getqflist({ title = 1, items = 1 })
-  eq(q.title, "bloaty: core/src/hot.rs", "quickfix title")
+  eq(q.title, "bloaty: core/src/hot.rs (hot)", "quickfix title: the file and its level")
   eq(vim.tbl_map(function(it)
     return { it.lnum, it.text }
   end, q.items), {
-    { 11, "split? plan: 71 lines (hot)" },
-    { 11, "simplify? plan: cyclomatic complexity 25 (hot)" },
-    { 11, "flatten? plan: nesting 7 (hot)" },
-  }, "quickfix: hot.rs culprits")
+    { 11, "split? plan(): 71 lines · cyclomatic complexity 25 · nesting 7" },
+  }, "quickfix: hot.rs culprits, merged on their line")
   vim.cmd.cclose()
 
   local texts = qf("core/src/fragile.rs")
   eq(#texts, 8, "quickfix: fragile.rs culprit + 7 panic sites")
-  eq(texts[2], "19 panic: assert! in Registry::add", "quickfix: panic sites from bloaty metrics")
+  eq(texts[2], "19 panic: assert! in Registry::add()", "quickfix: panic sites from bloaty metrics")
 
   eq(qf("core/src/dispatch.rs"), {
-    "24 dispatch run: 6 arms · shared prefix in 4 arms (1 statement) (noted)",
+    "24 note: dispatch run(): 6 arms · shared prefix in 4 arms (1 statement)",
     "27   shared prefix 1/4",
     "35   shared prefix 2/4",
     "43   shared prefix 3/4",
     "52   shared prefix 4/4",
   }, "quickfix: a noted dispatch and each copy of its shared prefix")
 
-  eq(qf("core/src/badarm.rs")[2], "22 simplify? apply: cyclomatic complexity 12 · arm Op::Rebalance 11 (warm)",
+  eq(qf("core/src/dup_a.rs"), {
+    "3 duplicate of adler() · src/dup_b.rs:3 +1",
+    "3   copy: adler() · src/dup_b.rs:3",
+    "23   copy: reference() · line 23",
+    "16 duplicate of add() · line 18",
+    "18   copy: add() · line 18",
+    "18 duplicate of plus() · line 16",
+    "16   copy: plus() · line 16",
+    "23 duplicate of adler() · src/dup_b.rs:3 +1",
+    "3   copy: adler() · src/dup_b.rs:3",
+    "3   copy: checksum() · line 3",
+    "73 note: Left::twice() | Right::twice() · identical · signatures differ: Self type"
+      .. " · same body on different types: a shared helper or a generic impl may fit; often by design",
+    "77   copy: Right::twice() · line 77",
+    "77 note: Left::twice() | Right::twice() · identical · signatures differ: Self type"
+      .. " · same body on different types: a shared helper or a generic impl may fit; often by design",
+    "73   copy: Left::twice() · line 73",
+  }, "quickfix: duplicate findings with their copies, then notes with their facts")
+
+  eq(qf("core/src/badarm.rs")[1], "22 split? apply(): 28 lines · arm Op::Rebalance 24 · cyclomatic complexity 12 (arm 11) · nesting 4",
     "quickfix: the bad arm, named")
+end
+
+local function test_words()
+  -- A same-shape duplicate reads as a near-duplicate (its facts are under
+  -- `dup`, as init.lua's `file_findings` keeps them).
+  local text = require("mbloaty.text")
+  local f = {
+    kind = "duplicate", name = "a", line = 1, dup = { identical = false },
+    others = { { name = "b", path = "/x/b.rs", line = 2 } },
+  }
+  eq(text.finding_note(f, "/x/a.rs").list, "near-duplicate of b() · b.rs:2", "words: a near-duplicate")
+  f.dup.identical = true
+  eq(text.finding_note(f, "/x/a.rs").list, "duplicate of b() · b.rs:2", "words: an identical duplicate")
+end
+
+local function test_explain()
+  -- `B` in the tree: a file's duplicates with their facts.
+  local before = #notes
+  tree.explain(vim.tbl_extend("force", state, {
+    tree = { get_node = function() return node("app/src/dup_b.rs") end },
+  }))
+  local said = notes[before + 1] and notes[before + 1].msg or ""
+  local want = "duplicate: adler() · identical in fxapp and fxcore · fxapp depends on fxcore"
+    .. " · move it into a shared crate, or reuse it through a dependency"
+  if not said:find(want, 1, true) then
+    die("B: dup_b.rs facts\n  want: " .. want .. "\n  got:  " .. said)
+  end
+  ok("B: a duplicate's facts (crates and the dependency between them, no reuse claim)")
 end
 
 local function test_info()
@@ -284,15 +337,33 @@ local function test_info()
   end)
   local lines = vim.api.nvim_buf_get_lines(vim.api.nvim_win_get_buf(float), 0, -1, false)
   eq({ lines[1], lines[3], lines[4], lines[5], lines[6], lines[8] }, {
-    "run",
-    "dispatch · 6 arms, 0 counted (0 lines · cc 0), the small ones excused",
-    "the rest: 4 lines · cc 1 · nesting 0",
+    "run()",
+    "dispatch · 6 arms, 0 counted (0 lines · cyclomatic complexity 0), the small ones excused",
+    "the rest: 4 lines · cyclomatic complexity 1 · nesting 0",
     "worst arms: nesting 1 Cmd::Add :26",
     "shared prefix: 4 arms start with the same 1 statement (lines 27, 35, 43, 52); hoist it above the match or into a helper",
     "◂ dispatch · 6 arms · shared prefix in 4 arms (1 statement): noted, not counted",
   }, "<leader>bi: a dispatch's shape, worst arm and shared prefix")
   vim.api.nvim_win_close(float, true)
 
+  -- <leader>bi on a duplicate note: its facts.
+  vim.cmd.edit("core/src/dup_a.rs")
+  vim.api.nvim_win_set_cursor(0, { 73, 0 })
+  lens.info()
+  float = nil
+  wait("the duplicate's info float", function()
+    for _, w in ipairs(vim.api.nvim_list_wins()) do
+      if vim.api.nvim_win_get_config(w).relative ~= "" then
+        float = w
+        return true
+      end
+    end
+  end)
+  lines = vim.api.nvim_buf_get_lines(vim.api.nvim_win_get_buf(float), 0, -1, false)
+  eq(lines[#lines], "◂ note: Left::twice() | Right::twice() · identical · signatures differ: Self type"
+    .. " · same body on different types: a shared helper or a generic impl may fit; often by design",
+    "<leader>bi: a duplicate note with its facts")
+  vim.api.nvim_win_close(float, true)
 end
 
 local function test_toggles()
@@ -380,6 +451,8 @@ local function main()
   test_column()
   test_lens()
   test_quickfix()
+  test_words()
+  test_explain()
   test_info()
   test_toggles()
   test_quiet()

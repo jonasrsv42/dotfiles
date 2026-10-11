@@ -27,6 +27,12 @@ function M.short(name)
   return s
 end
 
+-- A fn's name as shown: short, with `()` so a name never reads as a word
+-- (`copy: same() · named.rs:134`).
+function M.fn_name(name)
+  return M.short(name) .. "()"
+end
+
 -- An arm's pattern with each path cut to its last two segments
 -- (`crate::a::b::Foo::Quux` -> `Foo::Quux`).
 function M.short_arm(name)
@@ -153,7 +159,7 @@ function M.culprits(g, all)
     end
     table.insert(out, {
       line = line, verdict = verdict, ev = ev, merged = merged,
-      list = string.format("%s %s: %s", verdict, M.short(d.name), ev), dim = dim, fn_line = d.line,
+      list = string.format("%s %s: %s", verdict, M.fn_name(d.name), ev), dim = dim, fn_line = d.line,
     })
   end
   local f, il = by.largest_fn, by.impl_lines
@@ -181,7 +187,7 @@ function M.culprits(g, all)
     end
     table.insert(out, {
       line = p.line, verdict = "panics:", ev = ev, merged = "panics: " .. M.kinds(p.sites),
-      list = string.format("panics: %s: %s (%d in file)", M.short(p.name), M.kinds(p.sites), g.panics or 0),
+      list = string.format("panics: %s: %s (%d in file)", M.fn_name(p.name), M.kinds(p.sites), g.panics or 0),
       dim = "fragility", sites = p.sites, fn_line = p.line,
     })
   end
@@ -203,7 +209,7 @@ function M.notes(g)
       local verdict, ev = M.excuse(x)
       table.insert(out, {
         line = d.line, verdict = verdict, ev = ev, noted = true, name = d.name,
-        list = string.format("%s %s: %s", verdict, M.short(d.name), ev),
+        list = string.format("%s %s: %s", verdict, M.fn_name(d.name), ev),
         prelude = x["repeat"],
       })
     end
@@ -211,14 +217,70 @@ function M.notes(g)
   return out
 end
 
+-- Signature parts as bloaty names them (`differs`) -> words.
+local PART = {
+  self_type = "Self type", impl_generics = "impl generics", trait = "trait", receiver = "receiver", generics = "generics",
+  params = "parameters", ["return"] = "return type", qualifiers = "qualifiers",
+}
+
+-- "a and b", "a, b and c".
+local function both(list)
+  if #list <= 1 then
+    return list[1] or ""
+  end
+  return table.concat(list, ", ", 1, #list - 1) .. " and " .. list[#list]
+end
+
+-- A duplicate group's facts (`findings` JSON), one line: "identical in
+-- credits and cloudocol · credits depends on cloudocol · <hint>".
+function M.dup_facts(d)
+  local what = d.identical == false and "same shape" or "identical"
+  if d.rule == "cfg_variants" or d.rule == "cfg_identical" then
+    what = what .. " under different cfgs"
+  end
+  local parts = { what .. ((d.crates and #d.crates > 1) and (" in " .. both(d.crates)) or "") }
+  if d.differs and #d.differs > 0 then
+    local words = vim.tbl_map(function(p) return PART[p] or p end, d.differs)
+    table.insert(parts, "signatures differ: " .. table.concat(words, ", "))
+  end
+  for _, dep in ipairs(d.depends or {}) do
+    table.insert(parts, dep[1] .. " depends on " .. dep[2])
+  end
+  if d.hint then
+    table.insert(parts, d.hint)
+  end
+  return table.concat(parts, " · ")
+end
+
+-- A duplicate's copies by signature class: "A::f(), A::g() | B::f()".
+local function classes(d)
+  local by = {}
+  for _, c in ipairs(d.copies or {}) do
+    local k = (c.class or 0) + 1
+    by[k] = by[k] or {}
+    table.insert(by[k], M.fn_name(c.name))
+  end
+  return table.concat(vim.tbl_map(function(names)
+    return table.concat(names, ", ")
+  end, by), " | ")
+end
+
+-- A file's findings entry (see init.lua `file_findings`) for lists and
+-- explanations: "duplicate: f() · <facts>", "note: A::f() | B::f() · ...".
+function M.dup_line(f)
+  local head = f.note and ("note: " .. classes(f.dup)) or ("duplicate: " .. M.fn_name(f.name))
+  return head .. " · " .. M.dup_facts(f.dup)
+end
+
 -- A finding as a note: { line, verdict, ev, list }.
 function M.finding_note(f, this)
   local note = { line = f.line }
   if f.kind == "duplicate" then
     local o = f.others[1] or {}
-    note.verdict = f.identical == false and "near-duplicate" or "duplicate"
+    local identical = (f.dup or f).identical
+    note.verdict = identical == false and "near-duplicate" or "duplicate"
     if o.name and o.name ~= f.name then
-      note.verdict = note.verdict .. " of " .. M.short(o.name)
+      note.verdict = note.verdict .. " of " .. M.fn_name(o.name)
     end
     note.ev = o.path and M.where(o, this) or nil
     if note.ev and #f.others > 1 then
@@ -263,11 +325,11 @@ function M.shape(fn)
     table.insert(lines, string.format("table · %d entries (its %d lines excused)", sh.entries, sh.lines))
   elseif sh and sh.kind == "dispatch" then
     local w, r, c = sh.worst, sh.remainder, sh.counted
-    table.insert(lines, string.format("dispatch · %d arms, %d counted (%d lines · cc %d), the small ones excused",
+    table.insert(lines, string.format("dispatch · %d arms, %d counted (%d lines · cyclomatic complexity %d), the small ones excused",
       sh.arms, c.arms, c.lines, c.cyclomatic_complexity))
-    table.insert(lines, string.format("the rest: %d lines · cc %d · nesting %d", r.lines, r.cyclomatic_complexity, r.nesting))
+    table.insert(lines, string.format("the rest: %d lines · cyclomatic complexity %d · nesting %d", r.lines, r.cyclomatic_complexity, r.nesting))
     local blamed = {}
-    for _, k in ipairs({ { "lines", "%d lines" }, { "cyclomatic_complexity", "cc %d" }, { "nesting", "nesting %d" } }) do
+    for _, k in ipairs({ { "lines", "%d lines" }, { "cyclomatic_complexity", "cyclomatic complexity %d" }, { "nesting", "nesting %d" } }) do
       local a = w[k[1]]
       if a then
         table.insert(blamed, string.format(k[2] .. " %s :%d", a.value, M.short_arm(a.name), a.line))
