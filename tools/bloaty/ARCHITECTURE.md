@@ -49,12 +49,15 @@ Rust (src/):
     opaque (its words are only mentions, `macro_words`).
   - `visit/syntax.rs`: paths, types and words as text.
 - `fnmetrics.rs`: second, small walk per non-test fn body: cyclomatic
-  complexity, nesting, params, panic sites, clones (`FnMetrics`).
+  and cognitive complexity (with its worst increment), nesting, params,
+  panic sites, clones (`FnMetrics`; one `MetricsWalk::new` for fns, arms,
+  remainders and expressions).
 - `shape.rs`: per-fn `Shape` (table, dispatch with arms and repeated
   prelude) and allowed clippy lints; `settle` (run in `scan::analyse`)
   drops shapes that don't hold up once code lines are known.
-- `measure.rs`: `Measure` {Lines, CyclomaticComplexity, Nesting} and
-  `Dim`; every per-measure constant (bar, bad-arm bar, allow ceiling,
+- `measure.rs`: `Measure` {Lines, CognitiveComplexity} (the scored
+  per-fn numbers; `Measure::of` reads one off a fn or arm) and `Dim`;
+  every per-measure constant (bar, bad-arm/culprit bar, allow ceiling,
   lint, JSON metric name, text) lives here.
 - `rollup.rs`: per-file roll-ups: raw (`file_metrics`) and as scored
   (`effective_metrics`, excuses applied); `FnScore`, `Excuse`, blamed arms.
@@ -97,7 +100,7 @@ Neovim (lua/mbloaty/):
 - **Workspace-wide scoring.** Each signal is a mid-rank percentile among
   all scored files of the workspace (≥ 10 impl lines, a measured fn, not
   test or support). size = max(largest fn, impl lines); complexity =
-  max(cc, nesting from 4); fragility = panic density (≥ 2 panics, ≥ 30 impl
+  cognitive complexity; fragility = panic density (≥ 2 panics, ≥ 30 impl
   lines, ≥ 1/100; fixed bands when under 5 files qualify). Rounded to 2
   decimals before anything compares them.
 - **Pareto fronts and caps.** Non-dominated sorting on the three
@@ -105,28 +108,56 @@ Neovim (lua/mbloaty/):
   a dim ≥ 0.9, at most 5%. warm: the rest with a dim ≥ 0.75 by sum, at most
   10% more, none under 20 files. Caps are tight because directories show
   their worst child.
-- **Absolute bars.** hot/warm also need a fn ≥ 40 lines, cc ≥ 10, nesting
-  ≥ 4, or qualifying fragility: percentiles alone would flag tidy files.
-- **Levels.** `hot` / `warm` from the effective ranking; `noted` (blue):
-  would be hot/warm by raw numbers, but only because of an excused fn.
+- **Absolute bars.** hot/warm also need a fn ≥ 40 lines, cognitive
+  complexity ≥ 15, or qualifying fragility: percentiles alone would flag
+  tidy files.
 - **Culprit.** A real (not excused) fn dim at or past the bad-arm bar
-  (60 lines, cc 8, nesting 4) carries `culprit: true`; the lens marks only
-  culprits.
+  (60 lines, cognitive complexity 10), and the panic density, carry
+  `culprit: true`; the lens marks only culprits. **Every dot has a
+  culprit:** a file is eligible for hot (warm) only past the bar *and*
+  with a culprit among the reasons that level would name; an ineligible
+  file stays in the population (percentiles unchanged) and its slot goes
+  to the next eligible file. Impl lines alone never level a file. **Long
+  flat fns cap at warm:** a culprit-sized largest fn (or blamed arm) with
+  nothing nested (largest cognitive increment ≤
+  `measure::FLAT_MAX_INCREMENT`, 1: an exact syntactic claim) carries
+  `flat: true` (lens: `long? N lines · flat`, or `long? arm A N lines ·
+  flat (fn M)`, not `split?`); hot needs a culprit that isn't flat (one
+  rule, checked at hot eligibility and again after a bad arm keeps the
+  raw level). A flat largest fn doesn't hide a culprit-sized nested one:
+  the roll-up carries the largest nested fn (`largest_nested`) and the
+  reasons name it too. Dims that aren't culprits get no verdict: the
+  quickfix and float list them as `also: …`, the lens not at all.
+- **Levels.** `hot` / `warm` from the effective ranking; `noted` (blue):
+  would be hot/warm by raw numbers (same eligibility), but only because
+  of an excused fn whose own number would have been a culprit; only such
+  excused signals are listed.
+- **Cognitive complexity** is the complexity dimension; cyclomatic
+  complexity and nesting are reported breakdown columns (fn, dispatch
+  remainder, `max_cyclomatic_complexity` / `max_nesting` raw per file).
+  `worst_increment` {line, value} is a fn's single largest increment, ties
+  first in source order; the float shows it.
 - **dims.** Structured reasons of a levelled file: `{dim, metric, value,
-  name?, line?, arm?, panics?, culprit?, excused?}`. `why` is rendered from
+  name?, line?, arm?, panics?, culprit?, flat?, excused?}`. `why` is rendered from
   them, for display only.
 - **Shapes.** *Table*: a body ending in one literal of ≥ 4 simple entries;
   its literal's lines are excused (lets, scrutinee and complexity still
-  count). *Dispatch*: a tail match of ≥ 4 arms whose upper-median arm is
-  small; small arms (≤ 12 code lines in the body and cc ≤ 3) are excused,
-  the fn counts as remainder (lets + scrutinee) plus every non-small arm.
+  count). *Dispatch*: a tail match of ≥ 4 arms, at least half of them
+  small (⌈n/2⌉, by `Arm::small`, one meaning); small arms (≤ 12 code lines in the body and cognitive complexity
+  ≤ 3, measured from inside the arm) are excused, the fn counts as
+  remainder (lets + scrutinee) plus every non-small arm: lines added,
+  cognitive complexity remainder + 1 (the match) + the counted arms'.
   A dispatch arm at or past the bad-arm bar keeps the file at the worse of
   raw and effective level, blaming the arm (`arm`, `shape.worst`).
 - **Allow opt-outs.** `#[allow]`/`#[expect]` (also in `cfg_attr`) of
   `clippy::too_many_lines` excuses lines, `clippy::cognitive_complexity`
-  cc; only on the fn, only below the ceiling (2 × bar: 80 lines, cc 20).
+  cognitive complexity; only on the fn, only below the ceiling (2 × bar:
+  80 lines, cognitive complexity 30).
 - **Findings kinds.** duplicate, unused, single_impl_trait, long_fn,
-  test_heavy, pass_through (opt-in). Name-based, hints not proof; `pub`
+  test_heavy, pass_through (opt-in). long_fn counts lines as the smell
+  score does (`rollup::lines_excuse`): what a table, dispatch or allowed
+  lint excuses under `--long-fn` isn't reported but counted in `excused`
+  {kind: {excuse: n}}. Name-based, hints not proof; `pub`
   items of publishable libraries hidden unless `--include-pub`. Claims
   that would need name resolution or macro expansion aren't made:
   `unclaimed` {kind: {reason: n}} counts them (`Cx::exclude`).
@@ -195,6 +226,20 @@ bloaty's; when a claim would need them, bloaty makes none (counted in
   mentions: comments, plain doc text, other string literals (in a file
   syn can't parse every word counts). Mentions in definitions and plain
   `use` imports don't count.
+- **cognitive complexity** = SonarSource's rules over syntax, with these
+  differences: no recursion increment (calls aren't resolved:
+  `self.0.fmt(f)` forwards, it doesn't recurse); as in Sonar, only
+  control flow and closures nest (`{ }`, `unsafe`, `async` and `const`
+  blocks don't, though they are levels of the reported `nesting`); match
+  arms nest, guards sit at the match's level; a labelled `break`
+  (also out of a labelled block) adds 1 like Sonar's jump to a label;
+  boolean runs are counted over a whole `&&`/`||` tree read through
+  parentheses (`a && (b && c)` is one run; `!`, calls and other operators
+  start a new expression); match guards add nothing, their `&&`/`||` do;
+  `let .. else` counts like an `if` (a branch written out, with its own
+  block) while `?` adds nothing (error plumbing, the normal path). Macros as
+  for cyclomatic complexity: only `EXPRESSION_MACROS` arguments count.
+  Arms are measured like fns (from nesting 0).
 - **panics** = explicit calls by name: `.unwrap()`, `.expect(x)` (not
   `.expect(x)?`), `panic!`, `unreachable!`, `todo!`, `unimplemented!`,
   `assert!`, `assert_eq!`, `assert_ne!`; a custom `unwrap` method counts,
@@ -225,11 +270,13 @@ fixture and on any `BLOATY_CORPUS`.
 - **Scoring is PATH-independent.** A file's smell is the same whether
   bloaty is asked about the workspace, a subdirectory or the file.
 - **Panics are never excused.** Fragility is computed the same raw and
-  effective. Nesting is never excused by an allow (no clippy lint); tables
-  excuse only lines.
+  effective. Tables excuse only lines.
 - **noted ⊆ raw hot/warm.** A file is noted only if the raw ranking would
   level it and an excused fn is behind that; a noted file has only excused
-  dims, a hot/warm one at least one real dim.
+  dims (each at or past the culprit bar), a hot/warm one at least one real
+  dim.
+- **Every dot has a culprit.** A hot or warm file has at least one dim
+  with `culprit: true`; a hot one, one without `flat`.
 - **Schema.** Any change to a JSON field consumers read (rename, new
   field relied on, meaning change) bumps `SCHEMA` in src/main.rs *and*
   `SCHEMA` in lua/mbloaty/init.lua together (a test compares them).
@@ -279,8 +326,8 @@ field on `FnMetrics`, unit tests there). Reported only (like clones): add
 it to `metrics.rs` `FnRow` and render, and if rolled up per file to
 `rollup.rs` `FileMetrics` and the `summary.rs` group; document in
 help/metrics.txt / summary.txt. Scored: add a `Measure` variant in
-measure.rs (every match there; `ALL` and the `[_; 3]` arrays in rollup.rs
-and smell.rs grow), its peak in `rollup.rs` and `smell::Input::peak`, the
+measure.rs (every match there, `Measure::of`; `COUNT` sizes the
+per-measure arrays in rollup.rs and smell.rs), its peak in `rollup.rs` and `smell::Input::peak`, the
 dimension mapping in `smell::rank`, `fnmetrics::arm_metrics` if arms
 carry it, the help text phrase and `help_states_the_thresholds`, the culprit wording
 in lua/mbloaty/text.lua (`culprits`), the tables at the top of
@@ -327,8 +374,14 @@ update it alongside. Wording never changes JSON structure or schema.
 plan.md (gitignored) is the design log: every decision with the case that
 drove it, step by step. Distilled rationale:
 
-- Cyclomatic complexity is cognitive-style: a `match` counts once, `?`
-  nothing; flat dispatch and error plumbing are not complexity.
+- Complexity is cognitive complexity (SonarSource's, adapted): a `match`
+  counts once, `?` nothing, nesting costs; flat dispatch, guard clauses
+  and error plumbing are not complexity. It replaced max(cyclomatic,
+  nesting from 4), which flagged flat validation (cc 11, readable) and
+  14-line fns at nesting 4, and missed tangled loops (comparison in
+  plan.md, "Cognitive complexity phase 2").
+- Every dot has a culprit: a level the lens can't point at (a big file of
+  40–59-line straight fns) isn't actionable.
 - Fragility ranks only files with ≥ 2 dense panics: otherwise one `unwrap`
   in a project that rarely panics ranks in the top decile.
 - Population is the whole workspace so a file doesn't change colour with

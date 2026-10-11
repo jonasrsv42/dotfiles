@@ -3,7 +3,7 @@
 //! score sees them (excuses applied). Nothing is ranked here.
 
 use crate::fnmetrics::{FnMetrics, PanicSite};
-use crate::measure::Measure;
+use crate::measure::{FLAT_MAX_INCREMENT, Measure};
 use crate::scan::FileAnalysis;
 use crate::shape::{Arm, Dispatch, Lint, Repeat, Shape};
 use crate::visit::FnFact;
@@ -30,6 +30,11 @@ pub struct FnSize {
     /// Scoring a dispatch: the arm that stands in for the fn.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub arm: Option<ArmAt>,
+    /// The fn's largest single cognitive increment as counted alongside
+    /// `lines` (raw or effective): whether a long fn is a flat one
+    /// (`measure::FLAT_MAX_INCREMENT`).
+    #[serde(skip)]
+    pub worst: u32,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -49,6 +54,9 @@ pub struct ArmAt {
     pub line: usize,
     /// The arm's own number for the measure at hand.
     pub value: u32,
+    /// The arm's largest single cognitive increment (from inside the arm).
+    #[serde(skip)]
+    pub worst: u32,
 }
 
 impl ArmAt {
@@ -57,26 +65,29 @@ impl ArmAt {
             name: a.name.clone(),
             line: a.line,
             value,
+            worst: a.metrics.worst(),
         }
     }
 }
 
 /// The arm of a dispatch that answers for measure `m`: the worst of its
-/// counted (not small) arms by lines or cyclomatic complexity, of all arms
-/// by nesting. None when every arm is small.
+/// counted (not small) arms. None when every arm is small.
 pub fn blamed_arm(d: &Dispatch, m: Measure) -> Option<(u32, &Arm)> {
-    let counts = |a: &&Arm| m == Measure::Nesting || !a.small();
-    worst_arm(d.arms.iter().filter(counts), arm_key(m))
+    worst_arm(d.arms.iter().filter(|a| !a.small()), arm_key(m))
 }
 
 /// A dispatch's arms that count (`Arm::small` ones are excused): their
-/// summed lines and cyclomatic complexity.
+/// summed lines and cognitive complexity.
 pub fn counted(d: &Dispatch) -> (usize, u32, u32) {
     d.arms
         .iter()
         .filter(|a| !a.small())
         .fold((0, 0, 0), |(n, l, c), a| {
-            (n + 1, l + a.lines as u32, c + a.metrics.complexity)
+            (
+                n + 1,
+                l + a.lines as u32,
+                c + a.metrics.cognitive_complexity,
+            )
         })
 }
 
@@ -93,17 +104,26 @@ pub enum Excuse {
         repeat: Option<Repeat>,
     },
     /// `#[allow(clippy::too_many_lines)]` (lines) or
-    /// `#[allow(clippy::cognitive_complexity)]` (cyclomatic complexity and
-    /// nesting), below `Measure::allow_ceiling`.
+    /// `#[allow(clippy::cognitive_complexity)]` (cognitive complexity),
+    /// below `Measure::allow_ceiling`.
     Allowed { lint: Lint },
 }
 
 impl Excuse {
+    /// Its `kind` in JSON.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Excuse::Table { .. } => "table",
+            Excuse::Dispatch { .. } => "dispatch",
+            Excuse::Allowed { .. } => "allowed",
+        }
+    }
+
     fn covers(&self, m: Measure) -> bool {
         match self {
             Excuse::Table { .. } => m == Measure::Lines,
             Excuse::Dispatch { .. } => true,
-            Excuse::Allowed { lint } => m.lint() == Some(*lint),
+            Excuse::Allowed { lint } => m.lint() == *lint,
         }
     }
 }
@@ -122,13 +142,13 @@ pub struct FnScore {
     pub name: String,
     pub line: usize,
     /// Its own numbers, by `Measure::index`.
-    pub own: [u32; 3],
+    pub own: [u32; Measure::COUNT],
     /// What counts instead (`None`: excused away), by `Measure::index`.
-    pub effective: [Option<Stand>; 3],
+    pub effective: [Option<Stand>; Measure::COUNT],
     /// Allowed lints below their ceiling, then its shape.
     pub excuses: Vec<Excuse>,
     /// A dispatch's blamed arm by each measure (`blamed_arm`).
-    pub worst_arms: Option<[Option<ArmAt>; 3]>,
+    pub worst_arms: Option<[Option<ArmAt>; Measure::COUNT]>,
 }
 
 impl FnScore {
@@ -161,24 +181,20 @@ pub fn worst_arm<'a, T: Ord + Copy>(
 }
 
 pub fn arm_key(m: Measure) -> impl Fn(&Arm) -> u32 {
-    move |a: &Arm| match m {
-        Measure::Lines => a.lines as u32,
-        Measure::CyclomaticComplexity => a.metrics.complexity,
-        Measure::Nesting => a.metrics.nesting,
-    }
+    move |a: &Arm| m.of(a.lines, &a.metrics)
 }
 
 /// The fn's excuses and what its numbers become under them, or `None`
 /// without excuses.
 fn score_fn(func: &FnFact, lines: usize, m: &FnMetrics) -> Option<FnScore> {
-    let own = [lines as u32, m.complexity, m.nesting];
+    let own = Measure::ALL.map(|x| x.of(lines, m));
     let mut excuses: Vec<Excuse> = func
         .allowed
         .iter()
         .filter(|&&lint| {
             Measure::ALL
                 .iter()
-                .any(|&x| x.lint() == Some(lint) && own[x.index()] < x.allow_ceiling())
+                .any(|&x| x.lint() == lint && own[x.index()] < x.allow_ceiling())
         })
         .map(|&lint| Excuse::Allowed { lint })
         .collect();
@@ -204,7 +220,7 @@ fn score_fn(func: &FnFact, lines: usize, m: &FnMetrics) -> Option<FnScore> {
         let allowed = func
             .allowed
             .iter()
-            .any(|&l| x.lint() == Some(l) && own[i] < x.allow_ceiling());
+            .any(|&l| x.lint() == l && own[i] < x.allow_ceiling());
         if allowed {
             return None;
         }
@@ -218,19 +234,17 @@ fn score_fn(func: &FnFact, lines: usize, m: &FnMetrics) -> Option<FnScore> {
                 arm: None,
             },
             (Some(Shape::Dispatch(d)), Some(w)) => {
-                let (n, lines, cc) = counted(d);
+                let (_, lines, cog) = counted(d);
                 let rest = match x {
                     Measure::Lines => own[i].saturating_sub(d.lines as u32),
-                    Measure::CyclomaticComplexity => d.remainder.complexity,
-                    Measure::Nesting => d.remainder.nesting,
+                    Measure::CognitiveComplexity => d.remainder.cognitive_complexity,
                 };
                 let value = match x {
                     Measure::Lines => rest + lines,
-                    // The match's own decision, and each counted arm's
-                    // branches (an arm's base 1 is the match's): the fn's
-                    // own number when every arm counts.
-                    Measure::CyclomaticComplexity => rest + 1 + cc.saturating_sub(n as u32),
-                    Measure::Nesting => rest.max(w[i].as_ref().map_or(0, |a| a.value)),
+                    // The match's own increment, and each counted arm's
+                    // measured from inside the arm: at most the fn's own
+                    // (where the arms sit one level deeper).
+                    Measure::CognitiveComplexity => rest + 1 + cog,
                 };
                 Stand {
                     value,
@@ -250,6 +264,58 @@ fn score_fn(func: &FnFact, lines: usize, m: &FnMetrics) -> Option<FnScore> {
     })
 }
 
+/// A reported (never excused) peak: `func` takes it with a greater value
+/// (ties: the first fn in the file).
+fn raise(peak: &mut Option<FnPeak>, func: &FnFact, value: u32) {
+    if peak.as_ref().is_none_or(|p| value > p.value) {
+        *peak = Some(FnPeak {
+            name: func.name.clone(),
+            line: func.line,
+            value,
+            arm: None,
+        });
+    }
+}
+
+/// The excuse that keeps a fn of `lines` own code lines at or
+/// under `limit` lines as the smell score counts it (a table's literal, a
+/// dispatch's small arms, an allowed `clippy::too_many_lines`), if one
+/// does.
+pub fn lines_excuse(func: &FnFact, lines: usize, limit: usize) -> Option<Excuse> {
+    let Some(m) = func.metrics else {
+        // Unmeasured (test) fns: only the allow applies.
+        let lint = Measure::Lines.lint();
+        let allowed =
+            func.allowed.contains(&lint) && lines < Measure::Lines.allow_ceiling() as usize;
+        return allowed.then_some(Excuse::Allowed { lint });
+    };
+    let score = score_fn(func, lines, &m)?;
+    let effective = score.effective[Measure::Lines.index()]
+        .as_ref()
+        .map_or(0, |s| s.value as usize);
+    if effective > limit {
+        return None;
+    }
+    score.excuse_for(Measure::Lines).cloned()
+}
+
+/// A fn's largest single cognitive increment: its own, or, scoring a
+/// dispatch (`excuse`), the largest of its remainder's, the match's (1) and
+/// its counted arms' (each from inside the arm).
+fn worst_increment(func: &FnFact, m: &FnMetrics, excuse: bool) -> u32 {
+    match &func.shape {
+        Some(Shape::Dispatch(d)) if excuse => d
+            .arms
+            .iter()
+            .filter(|a| !a.small())
+            .map(|a| a.metrics.worst())
+            .chain([d.remainder.worst(), 1])
+            .max()
+            .unwrap_or(1),
+        _ => m.worst(),
+    }
+}
+
 /// The fn with the most panic sites in a file, and where they are.
 #[derive(Serialize, Clone, Debug)]
 pub struct FnPanics {
@@ -264,11 +330,16 @@ pub struct FnPanics {
 pub struct FileMetrics {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub largest_fn: Option<FnSize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_cognitive_complexity: Option<FnPeak>,
+    /// Reported only, never excused or scored: the fn with the most
+    /// (ties: the first in the file).
     #[serde(
         rename = "max_cyclomatic_complexity",
         skip_serializing_if = "Option::is_none"
     )]
     pub max_complexity: Option<FnPeak>,
+    /// Reported only, like `max_complexity`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_nesting: Option<FnPeak>,
     /// Absent when the file has no panic sites.
@@ -283,6 +354,10 @@ pub struct FileMetrics {
     /// Its fns with excuses (see `effective_metrics`).
     #[serde(skip)]
     pub excused: Vec<FnScore>,
+    /// The largest fn that isn't flat (something nested), counted like
+    /// `largest_fn`: a flat `largest_fn` mustn't hide it.
+    #[serde(skip)]
+    pub largest_nested: Option<FnSize>,
 }
 
 /// `None` for whole-test files and files whose syntax wasn't analysed.
@@ -293,11 +368,12 @@ pub fn file_metrics(f: &FileAnalysis, impl_lines: usize) -> Option<FileMetrics> 
 
 /// Like `file_metrics`, but as the smell score sees the file: a table's
 /// literal lines don't count; a dispatch counts as its remainder plus its
-/// worst arm (lines and cyclomatic complexity added, nesting the deeper),
-/// with `arm` set when the arm outweighs the remainder; a fn allowing
+/// counted arms (lines and cognitive complexity added), with `arm` set
+/// when the worst arm outweighs the remainder; a fn allowing
 /// `clippy::too_many_lines` doesn't count for `largest_fn`, one allowing
-/// `clippy::cognitive_complexity` not for the complexity peaks, below
-/// twice the bar.
+/// `clippy::cognitive_complexity` not for `max_cognitive_complexity`, below
+/// twice the bar. The reported peaks (cyclomatic complexity, nesting) are
+/// the raw ones.
 pub fn effective_metrics(f: &FileAnalysis, impl_lines: usize) -> Option<FileMetrics> {
     roll_up(f, impl_lines, true)
 }
@@ -307,28 +383,43 @@ fn roll_up(f: &FileAnalysis, impl_lines: usize, excuse: bool) -> Option<FileMetr
         return None;
     }
     let mut out = FileMetrics::default();
-    let mut peaks: [Option<(Stand, &FnFact)>; 3] = [None, None, None];
+    // Each measure's peak: what stands for the fn, the fn, and its largest
+    // cognitive increment as counted here; and the largest fn that isn't
+    // flat.
+    let mut peaks: [Option<(Stand, &FnFact, u32)>; Measure::COUNT] = Default::default();
+    let mut nested: Option<(Stand, &FnFact, u32)> = None;
     for (func, m) in measured(f) {
         let lines = f.own_lines(func);
         let score = score_fn(func, lines, &m);
-        let own = [lines as u32, m.complexity, m.nesting];
-        for x in Measure::ALL {
-            let i = x.index();
-            let stand = match (&score, excuse) {
-                (Some(s), true) => s.effective[i].clone(),
-                _ => Some(Stand {
-                    value: own[i],
-                    arm: None,
-                }),
-            };
+        let own = Measure::ALL.map(|x| x.of(lines, &m));
+        let stands = Measure::ALL.map(|x| match (&score, excuse) {
+            (Some(s), true) => s.effective[x.index()].clone(),
+            _ => Some(Stand {
+                value: own[x.index()],
+                arm: None,
+            }),
+        });
+        let worst = worst_increment(func, &m, excuse);
+        let better = |p: &Option<(Stand, &FnFact, u32)>, s: &Stand| {
+            p.as_ref().is_none_or(|(p, ..)| s.value > p.value)
+        };
+        if let Some(s) = &stands[Measure::Lines.index()]
+            && worst > FLAT_MAX_INCREMENT
+            && better(&nested, s)
+        {
+            nested = Some((s.clone(), func, worst));
+        }
+        for (i, stand) in stands.into_iter().enumerate() {
             // Ties go to the first fn in the file.
             if let Some(stand) = stand
-                && peaks[i].as_ref().is_none_or(|(p, _)| stand.value > p.value)
+                && better(&peaks[i], &stand)
             {
-                peaks[i] = Some((stand, func));
+                peaks[i] = Some((stand, func, worst));
             }
         }
         out.excused.extend(score);
+        raise(&mut out.max_complexity, func, m.complexity);
+        raise(&mut out.max_nesting, func, m.nesting);
         if m.panics > 0
             && out
                 .most_panics
@@ -348,23 +439,25 @@ fn roll_up(f: &FileAnalysis, impl_lines: usize, excuse: bool) -> Option<FileMetr
         out.panics += m.panics;
         out.clones += m.clones;
     }
-    let [lines, cc, nest] = peaks;
-    let peak = |p: Option<(Stand, &FnFact)>| {
-        p.map(|(s, func)| FnPeak {
+    let [lines, cog] = peaks;
+    let peak = |p: Option<(Stand, &FnFact, u32)>| {
+        p.map(|(s, func, _)| FnPeak {
             name: func.name.clone(),
             line: func.line,
             value: s.value,
             arm: s.arm,
         })
     };
-    out.largest_fn = lines.map(|(s, func)| FnSize {
+    let size = |(s, func, worst): (Stand, &FnFact, u32)| FnSize {
         name: func.name.clone(),
         line: func.line,
         lines: s.value as usize,
         arm: s.arm,
-    });
-    out.max_complexity = peak(cc);
-    out.max_nesting = peak(nest);
+        worst,
+    };
+    out.largest_fn = lines.map(size);
+    out.largest_nested = nested.map(size);
+    out.max_cognitive_complexity = peak(cog);
     out.panic_density = (impl_lines >= MIN_DENSITY_LINES)
         .then(|| (out.panics as f64 * 10000.0 / impl_lines as f64).round() / 100.0);
     Some(out)
@@ -442,9 +535,10 @@ mod tests {
         let x = &eff.excused[0];
         assert_eq!(x.own[0], 80);
         assert_eq!(x.excuses, [Excuse::Table { entries: 76 }]);
-        // The literal's 78 lines are excused; complexity is not.
+        // The literal's 78 lines are excused; complexity is not (it has
+        // none: cognitive complexity counts from 0).
         let value = |i: usize| x.effective[i].as_ref().map(|s| s.value);
-        assert_eq!((value(0), value(1)), (Some(2), Some(1)));
+        assert_eq!((value(0), value(1)), (Some(2), Some(0)));
     }
 
     #[test]
@@ -453,13 +547,13 @@ mod tests {
         let score = |effective, excuses| FnScore {
             name: "f".into(),
             line: 1,
-            own: [50, 20, 2],
+            own: [50, 20],
             effective,
             excuses,
             worst_arms: None,
         };
         let x = score(
-            [None, stand(5), stand(2)],
+            [None, stand(5)],
             vec![
                 Excuse::Allowed {
                     lint: Lint::TooManyLines,
@@ -471,21 +565,24 @@ mod tests {
             ],
         );
         assert_eq!(
-            x.excuse_for(Measure::CyclomaticComplexity),
+            x.excuse_for(Measure::CognitiveComplexity),
             Some(&Excuse::Dispatch {
                 arms: 4,
                 repeat: None
             })
         );
-        // Not lowered.
-        assert_eq!(x.excuse_for(Measure::Nesting), None);
-        let t = score(
-            [stand(50), stand(5), stand(2)],
-            vec![Excuse::Table { entries: 4 }],
+        // The first excuse covering the measure.
+        assert_eq!(
+            x.excuse_for(Measure::Lines),
+            Some(&Excuse::Allowed {
+                lint: Lint::TooManyLines,
+            })
         );
+        let t = score([stand(50), stand(5)], vec![Excuse::Table { entries: 4 }]);
+        // Not lowered.
         assert_eq!(t.excuse_for(Measure::Lines), None);
         // Lowered, but a table excuses only lines.
-        assert_eq!(t.excuse_for(Measure::CyclomaticComplexity), None);
+        assert_eq!(t.excuse_for(Measure::CognitiveComplexity), None);
     }
 
     #[test]
@@ -526,22 +623,46 @@ mod tests {
             l.arm.map(|a| (a.name, a.value)),
             Some(("Op::H0".into(), 16))
         );
-        // Nesting counts from inside the deepest arm.
-        assert_eq!(eff.max_nesting.map(|n| n.value), Some(1));
+        // Cognitive complexity: the match and the counted arms, each from
+        // inside the arm (3 `if`s: 3); the fn's own has them one level
+        // deeper (1 + 9 × 2). The reported peaks stay raw.
+        let cog = |m: Option<FnPeak>| m.map(|p| p.value);
+        assert_eq!(
+            (
+                cog(raw.max_cognitive_complexity),
+                cog(eff.max_cognitive_complexity)
+            ),
+            (Some(19), Some(10))
+        );
+        assert_eq!(eff.max_nesting.map(|n| n.value), Some(2));
     }
 
     #[test]
-    fn allowing_cognitive_complexity_leaves_nesting() {
-        let src = "#[allow(clippy::cognitive_complexity)]\nfn deep(x: u8) -> u8 {\n    if x > 1 { if x > 2 { if x > 3 { if x > 4 { if x > 5 { return 5; } } } } }\n    0\n}\n";
+    fn allowing_cognitive_complexity_excuses_it_up_to_twice_the_bar() {
+        let deep = |name: &str, depth: usize| {
+            let open: String = (0..depth).map(|i| format!("if x > {i} {{ ")).collect();
+            format!(
+                "#[allow(clippy::cognitive_complexity)]\nfn {name}(x: u8) -> u8 {{\n    {open}return 1;{}\n    0\n}}\n",
+                " }".repeat(depth)
+            )
+        };
+        // 1 + 2 + .. + 7 = 28 (excused), 1 + .. + 8 = 36 (not).
+        let src = deep("under", 7) + &deep("over", 8);
         let fx = Fixture::new(&[
             ("Cargo.toml", "[package]\nname = \"m\"\n"),
-            ("src/lib.rs", src),
+            ("src/lib.rs", &src),
         ]);
         let scan = fx.scan();
         let eff = effective_metrics(&scan.files[0], 20).unwrap();
-        // Cyclomatic complexity is excused, nesting (no clippy lint) isn't.
-        assert!(eff.max_complexity.is_none());
-        assert_eq!(eff.max_nesting.map(|n| n.value), Some(5));
+        let peak = eff.max_cognitive_complexity.unwrap();
+        assert_eq!((peak.name.as_str(), peak.value), ("over", 36));
+        let excused: Vec<_> = eff.excused.iter().map(|x| x.name.as_str()).collect();
+        assert_eq!(excused, ["under"]);
+        // Reported peaks aren't excused.
+        assert_eq!(
+            eff.max_nesting.map(|n| (n.name, n.value)),
+            Some(("over".into(), 8))
+        );
     }
 
     #[test]

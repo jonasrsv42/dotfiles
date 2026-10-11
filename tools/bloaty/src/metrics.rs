@@ -41,15 +41,15 @@ pub enum ShapeRow {
     },
     Dispatch {
         arms: usize,
-        /// The fn without the arms: lets, scrutinee, base complexity.
+        /// The fn without the arms: lets, scrutinee (cyclomatic complexity
+        /// counted from 1, cognitive from 0).
         remainder: Measures,
         /// The arms that aren't small (and so count): how many, their
-        /// summed lines and cyclomatic complexity.
+        /// summed lines and cognitive complexity.
         counted: Counted,
         /// The arm the score blames by each measure: the worst counted arm
-        /// by lines and cyclomatic complexity, the deepest of all by
-        /// nesting; absent when none counts.
-        worst: WorstArms,
+        /// by lines and by cognitive complexity; absent when none counts.
+        worst: Box<WorstArms>,
         #[serde(skip_serializing_if = "Option::is_none")]
         repeat: Option<Repeat>,
     },
@@ -61,6 +61,7 @@ pub struct Measures {
     #[serde(rename = "cyclomatic_complexity")]
     pub complexity: u32,
     pub nesting: u32,
+    pub cognitive_complexity: u32,
 }
 
 #[derive(Serialize)]
@@ -74,20 +75,15 @@ pub struct ArmValue {
 pub struct Counted {
     pub arms: usize,
     pub lines: u32,
-    pub cyclomatic_complexity: u32,
+    pub cognitive_complexity: u32,
 }
 
 #[derive(Serialize)]
 pub struct WorstArms {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lines: Option<ArmValue>,
-    #[serde(
-        rename = "cyclomatic_complexity",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub complexity: Option<ArmValue>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub nesting: Option<ArmValue>,
+    pub cognitive_complexity: Option<ArmValue>,
 }
 
 fn shape_row(own_lines: usize, func: &FnFact) -> Option<ShapeRow> {
@@ -104,24 +100,24 @@ fn shape_row(own_lines: usize, func: &FnFact) -> Option<ShapeRow> {
                     value,
                 })
             };
-            let (arms, lines, cyclomatic_complexity) = counted(d);
+            let (arms, lines, cognitive_complexity) = counted(d);
             ShapeRow::Dispatch {
                 arms: d.arms.len(),
                 remainder: Measures {
                     lines: own_lines.saturating_sub(d.lines),
                     complexity: d.remainder.complexity,
                     nesting: d.remainder.nesting,
+                    cognitive_complexity: d.remainder.cognitive_complexity,
                 },
                 counted: Counted {
                     arms,
                     lines,
-                    cyclomatic_complexity,
+                    cognitive_complexity,
                 },
-                worst: WorstArms {
+                worst: Box::new(WorstArms {
                     lines: w(Measure::Lines),
-                    complexity: w(Measure::CyclomaticComplexity),
-                    nesting: w(Measure::Nesting),
-                },
+                    cognitive_complexity: w(Measure::CognitiveComplexity),
+                }),
                 repeat: d.repeat.clone(),
             }
         }
@@ -158,10 +154,10 @@ pub fn report(scan: &Scan) -> Report {
     }
 }
 
-/// The `top` most complex fns (0: all), most complex first.
+/// The `top` fns by cognitive complexity (0: all), most complex first.
 pub fn render(r: &Report, scan: &Scan, top: usize) -> String {
     let mut rows: Vec<&FnRow> = r.functions.iter().collect();
-    rows.sort_by_key(|f| (Reverse(f.metrics.complexity), Reverse(f.lines)));
+    rows.sort_by_key(|f| (Reverse(f.metrics.cognitive_complexity), Reverse(f.lines)));
     let shown = if top == 0 {
         rows.len()
     } else {
@@ -170,14 +166,15 @@ pub fn render(r: &Report, scan: &Scan, top: usize) -> String {
     let mut out = String::new();
     let _ = writeln!(
         out,
-        "{:>4}  {:>4}  {:>6}  {:>6}  {:>6}  {:>5}  at  fn",
-        "cc", "nest", "params", "panics", "clones", "lines"
+        "{:>4}  {:>4}  {:>4}  {:>6}  {:>6}  {:>6}  {:>5}  at  fn",
+        "cog", "cc", "nest", "params", "panics", "clones", "lines"
     );
     for f in &rows[..shown] {
         let m = &f.metrics;
         let _ = writeln!(
             out,
-            "{:>4}  {:>4}  {:>6}  {:>6}  {:>6}  {:>5}  {}:{}  {}",
+            "{:>4}  {:>4}  {:>4}  {:>6}  {:>6}  {:>6}  {:>5}  {}:{}  {}",
+            m.cognitive_complexity,
             m.complexity,
             m.nesting,
             m.params,
@@ -241,6 +238,7 @@ mod tests {
             "end_line",
             "lines",
             "cyclomatic_complexity",
+            "cognitive_complexity",
             "nesting",
             "params",
             "panics",
@@ -263,6 +261,13 @@ mod tests {
             [7, 2, 1, 1, 1, 0]
         );
         assert_eq!(n(&fns[1], "clones"), 1);
+        // `if` and `else`; the `if` comes first.
+        assert_eq!(n(a, "cognitive_complexity"), 2);
+        assert_eq!(
+            a["worst_increment"],
+            serde_json::json!({"line": 2, "value": 1})
+        );
+        assert!(fns[1].get("worst_increment").is_none());
         assert_eq!(
             a["panic_sites"],
             serde_json::json!([{"line": 3, "col": 11, "kind": "unwrap"}])
@@ -281,6 +286,8 @@ mod tests {
         assert_eq!(lib["largest_fn"]["lines"], 7);
         assert_eq!(lib["max_cyclomatic_complexity"]["value"], 2);
         assert_eq!(lib["max_nesting"]["line"], 1);
+        assert_eq!(lib["max_cognitive_complexity"]["value"], 2);
+        assert_eq!(lib["max_cognitive_complexity"]["name"], "a");
         assert_eq!(lib["panics"], 1);
         assert_eq!(lib["clones"], 1);
         assert_eq!(lib["most_panics"]["name"], "a");

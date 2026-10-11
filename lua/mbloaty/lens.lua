@@ -2,8 +2,8 @@
 -- smell dot (the culprits among the signals in `smell.dims`) and its `•`
 -- (duplicate / unused / single-impl-trait findings), as a terse verdict plus
 -- evidence at the end of the line:
---   ◂ split? 100 lines · cyclomatic complexity 14
---   ◂ simplify? cyclomatic complexity 12 · arm Op::Rebalance 11   (at a dispatch's arm)
+--   ◂ split? 100 lines · cognitive complexity 22
+--   ◂ simplify? cognitive complexity 17 · arm Op::Rebalance 16   (at a dispatch's arm)
 --   ◂ duplicate · pollen/sys.rs:27
 -- and, in blue, what was excused from the score (the whole story of a noted
 -- file's blue dot): `◂ table · 24 entries`, `◂ dispatch · 9 arms ·
@@ -198,10 +198,10 @@ function M.qflist()
     table.insert(items, { filename = file, lnum = line, text = entry })
   end
   -- The file's level is in the title; culprits on one line merge, like the
-  -- lens (`split? f: 68 lines · cyclomatic complexity 8`); blue notes say so.
+  -- lens (`split? f: 68 lines · cognitive complexity 12`); blue notes say so.
   local last
   for _, c in ipairs(text.culprits(g, true)) do
-    if last and last.lnum == c.line and last.filename == path then
+    if last and c.merged and last.lnum == c.line and last.filename == path then
       last.text = last.text .. " · " .. c.merged
     else
       add(path, c.line, c.list)
@@ -271,8 +271,8 @@ end
 local function info_lines(fn, g, fl)
   local lines = {
     text.fn_name(fn.name),
-    string.format("%d lines · cyclomatic complexity %d · nesting %d · %d params · %d clones",
-      fn.lines, fn.cyclomatic_complexity, fn.nesting, fn.params, fn.clones),
+    text.complexity(fn),
+    string.format("%d lines · %d params · %d clones", fn.lines, fn.params, fn.clones),
   }
   vim.list_extend(lines, text.shape(fn))
   if fn.panics > 0 then

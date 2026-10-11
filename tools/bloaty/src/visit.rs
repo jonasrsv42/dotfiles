@@ -484,16 +484,13 @@ impl Visitor<'_> {
             || s.attrs.iter().any(|a| !is_plain_attr(a));
         let mut cfgs = self.cfg_stack.clone();
         cfgs.extend(cfg_attrs(s.attrs));
-        let (metrics, panic_sites, shape, allowed) = if in_test {
-            (None, Vec::new(), None, Vec::new())
+        // Allowed lints for test fns too: long_fn honours them.
+        let allowed = shape::allowed(s.attrs);
+        let (metrics, panic_sites, shape) = if in_test {
+            (None, Vec::new(), None)
         } else {
             let (m, sites) = fn_metrics(s.sig, s.block);
-            (
-                Some(m),
-                sites,
-                shape::shape(s.block),
-                shape::allowed(s.attrs),
-            )
+            (Some(m), sites, shape::shape(s.block))
         };
         let forwards_to = match s.kind {
             // Trait impls often *must* delegate (Display, From, Deref...).

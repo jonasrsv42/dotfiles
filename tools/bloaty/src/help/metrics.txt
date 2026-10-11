@@ -1,15 +1,33 @@
-Per-fn cyclomatic complexity, nesting, parameters, panic sites and clones.
+Per-fn cognitive and cyclomatic complexity, nesting, parameters, panic
+sites and clones.
 
 Every non-test fn (free, inherent, trait impl or default) in PATH. Closures
 count toward their fn; fns nested in a body are measured on their own.
   lines       own code lines (nested items excluded)
   cyclomatic_complexity
-              1 + each if / else if, match (once, whatever its arms),
+              (reported, not scored) 1 + each if / else if, match (once, whatever its arms),
               while/for/loop, && / ||, let-else; ? adds nothing
-  nesting     deepest if/match/loop/closure/let-else/block ({ }, unsafe,
+  nesting     (reported, not scored) deepest
+              if/match/loop/closure/let-else/block ({ }, unsafe,
               async, const) inside the body (0 for straight-line code;
               else-if, match guards and a construct's own { } don't add a
               level)
+  cognitive_complexity
+              SonarSource's, adapted, from 0: if / if let, match (once),
+              while/for/loop and let-else add 1 + the nesting they sit at
+              (levels of control flow and closures; blocks don't nest
+              here, unlike in `nesting`); else if, else, each run of
+              the same && or || (a && b || c: 2; parentheses don't break a
+              run) and a labelled break/continue add 1. ?, unlabelled
+              return/break/continue and match arms add nothing; match
+              guards add nothing either, their && / || do; no recursion
+              increment (calls aren't resolved). let-else counts like an
+              if (a branch written out) while ? doesn't (error plumbing).
+              The smell score's complexity (see `bloaty summary`).
+              Nothing nested (worst_increment <= 1) makes a fn flat.
+  worst_increment
+              {line, value}: the single largest increment (the first on
+              ties), absent at 0
   params      parameters, self excluded
   panics      .unwrap(), .expect(x) (not .expect(x)?), panic!,
               unreachable!, todo!, unimplemented!, assert!, assert_eq!,
@@ -24,7 +42,8 @@ custom ones, items in a body) only the panic calls and clones written
 there count, never complexity or nesting. Panics are explicit calls by
 name: a custom unwrap() counts; indexing, overflow, division don't.
 
-Text: the --top most complex fns, as file:line and name. JSON: `root` and
+Text: the --top fns by cognitive complexity (cog; cc: cyclomatic), as
+file:line and name. JSON: `root` and
 `functions`, every fn by file and line (--top doesn't apply), each with
 `name`, `file` (relative to root), `path` (absolute), `start_line`, `line`,
 `end_line`, `crate`, the numbers above and `panic_sites` [{line, col, kind}]
@@ -42,17 +61,18 @@ Fns with a shape have `shape`:
   literal may add no cyclomatic complexity. `lines`: the literal's code
   lines, which the smell score excuses.
 - {kind: "dispatch", arms, remainder {lines, cyclomatic_complexity,
-  nesting}, counted {arms, lines, cyclomatic_complexity}, worst {lines?,
-  cyclomatic_complexity?, nesting?: {name, line, value}}, repeat?} when it
+  nesting, cognitive_complexity}, counted {arms, lines,
+  cognitive_complexity}, worst {lines?, cognitive_complexity?: {name,
+  line, value}}, repeat?} when it
   ends (after at most 2 lets) in a match, or `Ok(match ..)` and the like,
-  of >= 4 arms whose median arm (the upper one) has <= 12 code lines and
-  cyclomatic complexity <= 3 (in its body: the pattern aside): a match of bigger arms is just a long fn.
+  of >= 4 arms, at least half of them small (<= 12 code lines and
+  cognitive complexity <= 3 in the body, the pattern aside): a match of
+  bigger arms is just a long fn.
   Each arm is measured like a fn; `remainder` is the fn without the arms;
   `counted` sums the arms that aren't small (they count, see `bloaty
   summary`); `worst` names the arm the score blames by each measure: the
-  worst counted arm by lines and cyclomatic complexity (absent when all
-  are small), the deepest arm by nesting (the first on ties); `repeat` as
-  in `bloaty summary`.
+  worst counted arm by lines and by cognitive complexity (the first on
+  ties; absent when all are small); `repeat` as in `bloaty summary`.
 `allowed`: ["too_many_lines" | "cognitive_complexity"] from
 #[allow(clippy::..)] / #[expect(clippy::..)] on the fn (also inside
 #[cfg_attr(..)] unless its condition is `any()`). Text tags such fns [table · N entries], [dispatch · N

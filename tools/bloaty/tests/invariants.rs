@@ -16,12 +16,19 @@
 //!   fn's own number and the group's raw peak; excused dims carry the fn's
 //!   own number, and the excuse matches `metrics` (table / dispatch shape,
 //!   allowed lint) and the measure it may cover;
-//! - `culprit` is set exactly on real fn dims at or past the bad-arm bar;
-//! - panics are never excused, nesting never by an allowed lint, tables
-//!   only for largest_fn;
-//! - a noted group has only excused dims, a hot or warm one a real one;
+//! - `culprit` is set exactly on real fn dims at or past the bad-arm bar
+//!   and on panic density dims;
+//! - panics are never excused, tables only for largest_fn;
+//! - a noted group has only excused dims, a hot or warm one a real one
+//!   and a culprit (the lens always has something to point at), a hot one
+//!   a culprit that isn't `flat` (long flat fns alone cap at warm); `flat`
+//!   marks exactly the culprit largest_fn dims with nothing nested
+//!   (worst_increment <= FLAT_MAX_INCREMENT), and a flat one never hides a
+//!   culprit-sized fn with something nested;
+//!   excused dims are at or past the culprit bar;
 //! - a dim blaming a dispatch arm names `metrics`' `shape.worst` for it;
-//! - `metrics` panics == panic_sites; the group's panics are its fns' sum,
+//! - `metrics` panics == panic_sites; a fn's worst_increment lies in it
+//!   and is at most its cognitive complexity (absent only at 0); the group's panics are its fns' sum,
 //!   `most_panics` is the first fn with the most, with its sites; the
 //!   group's largest_fn / max_* are its fns' first maxima;
 //! - scoring a subdirectory or a single file gives each file the smell the
@@ -52,6 +59,11 @@ fn constant(file: &str, prefix: &str) -> u64 {
     digits.parse().unwrap()
 }
 
+/// `FLAT_MAX_INCREMENT` in src/measure.rs.
+fn flat_max_increment() -> u64 {
+    constant("src/measure.rs", "pub const FLAT_MAX_INCREMENT: u32 = ")
+}
+
 /// `SCHEMA` in src/main.rs.
 fn schema() -> u64 {
     constant("src/main.rs", "const SCHEMA: u32 = ")
@@ -61,8 +73,7 @@ fn schema() -> u64 {
 fn bad_arm(metric: &str) -> Option<u64> {
     match metric {
         "largest_fn" => Some(60),
-        "cyclomatic_complexity" => Some(8),
-        "nesting" => Some(4),
+        "cognitive_complexity" => Some(10),
         _ => None,
     }
 }
@@ -71,8 +82,7 @@ fn bad_arm(metric: &str) -> Option<u64> {
 fn fn_key(metric: &str) -> Option<&'static str> {
     match metric {
         "largest_fn" => Some("lines"),
-        "cyclomatic_complexity" => Some("cyclomatic_complexity"),
-        "nesting" => Some("nesting"),
+        "cognitive_complexity" => Some("cognitive_complexity"),
         _ => None,
     }
 }
@@ -81,8 +91,7 @@ fn fn_key(metric: &str) -> Option<&'static str> {
 fn group_peak(metric: &str) -> (&'static str, &'static str) {
     match metric {
         "largest_fn" => ("largest_fn", "lines"),
-        "cyclomatic_complexity" => ("max_cyclomatic_complexity", "value"),
-        _ => ("max_nesting", "value"),
+        _ => ("max_cognitive_complexity", "value"),
     }
 }
 
@@ -164,6 +173,21 @@ fn check_metrics(o: &Outputs, c: &mut Checked) {
             format!(
                 "{}:{} {}: panics {} != {sites} panic_sites",
                 f["file"], f["line"], f["name"], f["panics"]
+            )
+        });
+        // The worst cognitive increment lies in the fn, and is part of it.
+        let cog = u(&f["cognitive_complexity"]);
+        let w = &f["worst_increment"];
+        let holds = if w.is_null() {
+            cog == 0
+        } else {
+            u(&w["value"]) <= cog
+                && (u(&f["start_line"])..=u(&f["end_line"])).contains(&u(&w["line"]))
+        };
+        c.expect(holds, || {
+            format!(
+                "{}:{} {}: worst_increment {w} vs cognitive_complexity {cog}",
+                f["file"], f["line"], f["name"]
             )
         });
     }
@@ -287,6 +311,7 @@ fn check_rollup(g: &Value, fns: &[&Value], c: &mut Checked) {
             "value",
         ),
         ("max_nesting", "nesting", "value"),
+        ("max_cognitive_complexity", "cognitive_complexity", "value"),
     ] {
         let Some(top) = first_max(fns, key) else {
             continue;
@@ -332,7 +357,7 @@ fn check_dim(g: &Value, d: &Value, fns: &[&Value], c: &mut Checked) {
     let excused = &d["excused"];
     let want_dim = match metric {
         "largest_fn" | "impl_lines" => "size",
-        "cyclomatic_complexity" | "nesting" => "complexity",
+        "cognitive_complexity" => "complexity",
         "panic_density" => "fragility",
         _ => "?",
     };
@@ -340,10 +365,13 @@ fn check_dim(g: &Value, d: &Value, fns: &[&Value], c: &mut Checked) {
         format!("{name}: dim {} for metric {metric}", d["dim"])
     });
     let Some(key) = fn_key(metric) else {
-        // File-wide signals: never excused, never culprits, the group's own.
-        c.expect(excused.is_null() && d.get("culprit").is_none(), || {
-            format!("{name}: {metric} excused or culprit: {d}")
-        });
+        // File-wide signals: never excused, the group's own; the panic
+        // density is a culprit, impl lines aren't.
+        let culprit = metric == "panic_density";
+        c.expect(
+            excused.is_null() && (d["culprit"] == true) == culprit,
+            || format!("{name}: {metric} excused, or culprit isn't {culprit}: {d}"),
+        );
         let same = match metric {
             "impl_lines" => d["value"] == g["impl"],
             _ => d["value"] == g["panic_density"] && d["panics"] == g["panics"],
@@ -359,6 +387,25 @@ fn check_dim(g: &Value, d: &Value, fns: &[&Value], c: &mut Checked) {
         c.fail(format!("{name}: dim names no measured fn: {d}"));
         return;
     };
+    // `flat`: a culprit-sized largest fn with nothing nested (for an arm or
+    // a dispatch, as scored: metrics doesn't show those increments).
+    let flat = d.get("flat").is_some();
+    c.expect(!flat || (culprit && metric == "largest_fn"), || {
+        format!("{name}: flat on a non-culprit or non-size dim: {d}")
+    });
+    if culprit
+        && metric == "largest_fn"
+        && d.get("arm").is_none()
+        && f["shape"]["kind"] != "dispatch"
+    {
+        let worst = f["worst_increment"]["value"].as_u64().unwrap_or(0);
+        c.expect(flat == (worst <= flat_max_increment()), || {
+            format!(
+                "{name}: flat should be {}: worst increment {worst}: {d}",
+                !flat
+            )
+        });
+    }
     let (own, value) = (u(&f[key]), u(&d["value"]));
     let (peak_field, peak_key) = group_peak(metric);
     let peak = u(&g[peak_field][peak_key]);
@@ -382,6 +429,10 @@ fn check_dim(g: &Value, d: &Value, fns: &[&Value], c: &mut Checked) {
     c.expect(value == own, || {
         format!("{name}: excused {metric} {value} != fn's own {own}")
     });
+    // Noted: an excused signal that would have been a culprit.
+    c.expect(bad_arm(metric).is_some_and(|b| value >= b), || {
+        format!("{name}: excused {metric} {value} under the culprit bar")
+    });
     let ok = match excused["kind"].as_str() {
         Some("table") => metric == "largest_fn" && f["shape"]["kind"] == "table",
         Some("dispatch") => f["shape"]["kind"] == "dispatch",
@@ -389,7 +440,7 @@ fn check_dim(g: &Value, d: &Value, fns: &[&Value], c: &mut Checked) {
             let lint = &excused["lint"];
             let covers = match metric {
                 "largest_fn" => lint == "too_many_lines",
-                "cyclomatic_complexity" => lint == "cognitive_complexity",
+                "cognitive_complexity" => lint == "cognitive_complexity",
                 _ => false,
             };
             covers && arr(&f["allowed"]).contains(lint)
@@ -426,9 +477,33 @@ fn check_smell(g: &Value, fns: &[&Value], c: &mut Checked) {
     let real = dims.iter().filter(|d| d["excused"].is_null()).count();
     match level {
         "noted" => c.expect(real == 0, || format!("{name}: noted with a real reason")),
-        _ => c.expect(real > 0, || {
-            format!("{name}: {level} without a real reason")
-        }),
+        _ => {
+            c.expect(real > 0, || {
+                format!("{name}: {level} without a real reason")
+            });
+            c.expect(dims.iter().any(|d| d["culprit"] == true), || {
+                format!("{name}: {level} without a culprit")
+            });
+            // Long flat fns alone never make a file hot.
+            let full = dims
+                .iter()
+                .any(|d| d["culprit"] == true && d.get("flat").is_none());
+            c.expect(level != "hot" || full, || {
+                format!("{name}: hot with only long flat culprits")
+            });
+            // A flat largest fn doesn't hide a culprit-sized nested one
+            // (checked on plain fns: no shape or allow changes their lines).
+            let flat_size = dims.iter().any(|d| d.get("flat").is_some());
+            let hidden = fns.iter().any(|f| {
+                f.get("shape").is_none()
+                    && arr(&f["allowed"]).is_empty()
+                    && u(&f["lines"]) >= bad_arm("largest_fn").unwrap_or(0)
+                    && f["worst_increment"]["value"].as_u64().unwrap_or(0) > flat_max_increment()
+            });
+            c.expect(!flat_size || !hidden || full, || {
+                format!("{name}: a flat largest fn hides a nested culprit-sized fn")
+            });
+        }
     }
 }
 

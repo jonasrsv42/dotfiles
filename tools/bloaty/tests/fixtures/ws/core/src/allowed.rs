@@ -49,5 +49,25 @@ pub fn report(s: &Stats) -> Vec<String> {
     let lines = out.len();
     out.push(format!("({lines} lines)"));
     out.push(String::new());
+    out.push(format!("slot 0: {}", s.done % 2));
+    out.push(format!("slot 1: {}", s.done % 3));
+    out.push(format!("slot 2: {}", s.done % 4));
+    out.push(format!("slot 3: {}", s.done % 5));
+    out.push(format!("slot 4: {}", s.done % 6));
+    out.push(format!("slot 5: {}", s.done % 7));
+    out.push(format!("slot 6: {}", s.done % 8));
+    out.push(format!("slot 7: {}", s.done % 9));
+    out.push(format!("slot 8: {}", s.done % 10));
+    out.push(format!("slot 9: {}", s.done % 11));
+    out.push(format!("slot 10: {}", s.done % 12));
+    out.push(format!("slot 11: {}", s.done % 13));
+    out.push(format!("slot 12: {}", s.done % 14));
+    out.push(format!("slot 13: {}", s.done % 15));
+    out.push(format!("slot 14: {}", s.done % 16));
+    out.push(format!("slot 15: {}", s.done % 17));
+    out.push(format!("slot 16: {}", s.done % 18));
+    out.push(format!("slot 17: {}", s.done % 19));
+    out.push(format!("slot 18: {}", s.done % 20));
+    out.push(format!("slot 19: {}", s.done % 21));
     out
 }

@@ -6,6 +6,7 @@ use crate::visit::macros::expression_args;
 use crate::visit::syntax::last_segment;
 use proc_macro2::{Delimiter, TokenStream, TokenTree};
 use serde::Serialize;
+use std::cmp::Reverse;
 use syn::spanned::Spanned;
 use syn::visit::{self, Visit};
 use syn::{Block, Expr, FnArg, Item};
@@ -39,6 +40,20 @@ pub struct FnMetrics {
     /// sit at their construct's depth, and a block that is a construct's own
     /// body (a match arm's or closure's `{ }`) doesn't add a level.
     pub nesting: u32,
+    /// Cognitive complexity (SonarSource's, adapted), counted from 0: an
+    /// `if`, `match` (once), `while`/`for`/`loop` or `let .. else` adds 1
+    /// plus the depth it sits at (control flow and closures nest; unlike
+    /// `nesting`, blocks don't: `{ }`, `unsafe`, `async`, `const`); `else
+    /// if`, `else`, each run of the same `&&`/`||` in a boolean expression
+    /// (parentheses don't break a run) and a labelled `break`/`continue` add
+    /// one each. `?`, unlabelled jumps and match arms add nothing; no
+    /// recursion increment (calls aren't resolved). The smell score's
+    /// complexity.
+    pub cognitive_complexity: u32,
+    /// The single largest cognitive increment (ties: the first in source
+    /// order); absent at 0.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub worst_increment: Option<Increment>,
     /// Parameters, `self` excluded.
     pub params: u32,
     /// `.unwrap()`, `.expect(x)` (not `.expect(x)?`), `panic!`,
@@ -47,6 +62,24 @@ pub struct FnMetrics {
     pub panics: u32,
     /// `.clone()` calls, also written inside any macro's arguments.
     pub clones: u32,
+}
+
+impl FnMetrics {
+    /// The largest single cognitive increment (0 without any): 1 when
+    /// nothing is nested.
+    pub fn worst(&self) -> u32 {
+        self.worst_increment.map_or(0, |w| w.value)
+    }
+}
+
+/// One cognitive increment: where its construct starts, and how much it adds.
+#[derive(Serialize, Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Increment {
+    pub line: usize,
+    /// 1-based, in characters; breaks ties in source order.
+    #[serde(skip)]
+    pub col: usize,
+    pub value: u32,
 }
 
 /// Macros that panic in release builds (`debug_assert*` compile out).
@@ -61,20 +94,12 @@ const PANIC_MACROS: &[&str] = &[
 ];
 
 pub fn fn_metrics(sig: &syn::Signature, block: &Block) -> (FnMetrics, Vec<PanicSite>) {
-    let mut m = MetricsWalk {
-        skip: None,
-        m: FnMetrics {
-            complexity: 1,
-            params: sig
-                .inputs
-                .iter()
-                .filter(|a| matches!(a, FnArg::Typed(_)))
-                .count() as u32,
-            ..Default::default()
-        },
-        depth: 0,
-        sites: Vec::new(),
-    };
+    let mut m = MetricsWalk::new(None);
+    m.m.params = sig
+        .inputs
+        .iter()
+        .filter(|a| matches!(a, FnArg::Typed(_)))
+        .count() as u32;
     m.visit_block(block);
     m.sites.sort_by_key(|s| (s.line, s.col));
     m.m.panics = m.sites.len() as u32;
@@ -84,15 +109,7 @@ pub fn fn_metrics(sig: &syn::Signature, block: &Block) -> (FnMetrics, Vec<PanicS
 /// A match arm measured like a fn: complexity from 1 (its guard counts),
 /// nesting from inside the arm. Panics and clones are the fn's.
 pub fn arm_metrics(arm: &syn::Arm) -> FnMetrics {
-    let mut m = MetricsWalk {
-        skip: None,
-        m: FnMetrics {
-            complexity: 1,
-            ..Default::default()
-        },
-        depth: 0,
-        sites: Vec::new(),
-    };
+    let mut m = MetricsWalk::new(None);
     if let Some((_, guard)) = &arm.guard {
         m.visit_expr(guard);
     }
@@ -107,15 +124,7 @@ pub fn arm_metrics(arm: &syn::Arm) -> FnMetrics {
 
 /// The cyclomatic complexity of one expression, counted from 1.
 pub fn expr_complexity(e: &Expr) -> u32 {
-    let mut m = MetricsWalk {
-        skip: None,
-        m: FnMetrics {
-            complexity: 1,
-            ..Default::default()
-        },
-        depth: 0,
-        sites: Vec::new(),
-    };
+    let mut m = MetricsWalk::new(None);
     m.visit_expr(e);
     m.m.complexity
 }
@@ -124,15 +133,7 @@ pub fn expr_complexity(e: &Expr) -> u32 {
 /// measured on their own): the lets before the match, its scrutinee and the
 /// fn's base complexity of 1. The match itself adds nothing.
 pub fn remainder_metrics(block: &Block, dispatch: &syn::ExprMatch) -> FnMetrics {
-    let mut m = MetricsWalk {
-        skip: Some(dispatch as *const syn::ExprMatch),
-        m: FnMetrics {
-            complexity: 1,
-            ..Default::default()
-        },
-        depth: 0,
-        sites: Vec::new(),
-    };
+    let mut m = MetricsWalk::new(Some(dispatch));
     m.visit_block(block);
     m.m.panics = m.sites.len() as u32;
     m.m
@@ -146,11 +147,27 @@ struct MetricsWalk {
     skip: Option<*const syn::ExprMatch>,
     m: FnMetrics,
     depth: u32,
+    /// The cognitive nesting: `depth` without blocks.
+    cog_depth: u32,
     /// The panic sites; their count becomes `m.panics`.
     sites: Vec<PanicSite>,
 }
 
 impl MetricsWalk {
+    /// A walk from depth 0 with complexity 1, leaving out `skip`'s arms.
+    fn new(skip: Option<&syn::ExprMatch>) -> Self {
+        MetricsWalk {
+            skip: skip.map(|m| m as *const syn::ExprMatch),
+            m: FnMetrics {
+                complexity: 1,
+                ..Default::default()
+            },
+            depth: 0,
+            cog_depth: 0,
+            sites: Vec::new(),
+        }
+    }
+
     fn panic_at(&mut self, span: proc_macro2::Span, kind: String) {
         let at = span.start();
         self.sites.push(PanicSite {
@@ -160,7 +177,38 @@ impl MetricsWalk {
         });
     }
 
+    /// A cognitive increment of `value` at `span`'s start.
+    fn add(&mut self, span: proc_macro2::Span, value: u32) {
+        let at = span.start();
+        let inc = Increment {
+            line: at.line,
+            col: at.column + 1,
+            value,
+        };
+        self.m.cognitive_complexity += value;
+        let worse = |w: &Increment| {
+            (value, Reverse((inc.line, inc.col))) > (w.value, Reverse((w.line, w.col)))
+        };
+        if self.m.worst_increment.as_ref().is_none_or(worse) {
+            self.m.worst_increment = Some(inc);
+        }
+    }
+
+    /// A nesting construct's increment: 1 plus the depth it sits at.
+    fn structural(&mut self, span: proc_macro2::Span) {
+        self.add(span, 1 + self.cog_depth);
+    }
+
+    /// Control flow or a closure: a level of `nesting` and of cognitive
+    /// nesting.
     fn nested(&mut self, f: impl FnOnce(&mut Self)) {
+        self.cog_depth += 1;
+        self.nested_block(f);
+        self.cog_depth -= 1;
+    }
+
+    /// A block expression: a level of `nesting` only.
+    fn nested_block(&mut self, f: impl FnOnce(&mut Self)) {
         self.depth += 1;
         self.m.nesting = self.m.nesting.max(self.depth);
         f(self);
@@ -201,13 +249,24 @@ impl<'ast> Visit<'ast> for MetricsWalk {
     fn visit_item(&mut self, _: &'ast Item) {}
 
     fn visit_expr_if(&mut self, e: &'ast syn::ExprIf) {
-        self.m.complexity += 1;
-        self.visit_expr(&e.cond);
-        self.nested(|v| v.visit_block(&e.then_branch));
-        match e.else_branch.as_ref().map(|(_, e)| &**e) {
-            Some(Expr::If(elif)) => self.visit_expr_if(elif),
-            Some(other) => self.nested(|v| v.body(other)),
-            None => {}
+        // An `else if` chain sits at the first `if`'s depth.
+        let mut e = e;
+        self.structural(e.if_token.span);
+        loop {
+            self.m.complexity += 1;
+            self.visit_expr(&e.cond);
+            self.nested(|v| v.visit_block(&e.then_branch));
+            match e.else_branch.as_ref().map(|(t, e)| (t, &**e)) {
+                Some((_, Expr::If(elif))) => {
+                    self.add(elif.if_token.span, 1);
+                    e = elif;
+                }
+                Some((else_token, other)) => {
+                    self.add(else_token.span, 1);
+                    return self.nested(|v| v.body(other));
+                }
+                None => return,
+            }
         }
     }
 
@@ -216,6 +275,7 @@ impl<'ast> Visit<'ast> for MetricsWalk {
             return self.visit_expr(&e.expr);
         }
         self.m.complexity += 1;
+        self.structural(e.match_token.span);
         self.visit_expr(&e.expr);
         // Guards sit at the match's own depth, like its scrutinee.
         for (_, guard) in e.arms.iter().filter_map(|a| a.guard.as_ref()) {
@@ -226,18 +286,21 @@ impl<'ast> Visit<'ast> for MetricsWalk {
 
     fn visit_expr_while(&mut self, e: &'ast syn::ExprWhile) {
         self.m.complexity += 1;
+        self.structural(e.while_token.span);
         self.visit_expr(&e.cond);
         self.nested(|v| v.visit_block(&e.body));
     }
 
     fn visit_expr_for_loop(&mut self, e: &'ast syn::ExprForLoop) {
         self.m.complexity += 1;
+        self.structural(e.for_token.span);
         self.visit_expr(&e.expr);
         self.nested(|v| v.visit_block(&e.body));
     }
 
     fn visit_expr_loop(&mut self, e: &'ast syn::ExprLoop) {
         self.m.complexity += 1;
+        self.structural(e.loop_token.span);
         self.nested(|v| v.visit_block(&e.body));
     }
 
@@ -246,34 +309,62 @@ impl<'ast> Visit<'ast> for MetricsWalk {
     }
 
     fn visit_expr_block(&mut self, e: &'ast syn::ExprBlock) {
-        self.nested(|v| v.visit_block(&e.block));
+        self.nested_block(|v| v.visit_block(&e.block));
     }
 
     fn visit_expr_unsafe(&mut self, e: &'ast syn::ExprUnsafe) {
-        self.nested(|v| v.visit_block(&e.block));
+        self.nested_block(|v| v.visit_block(&e.block));
     }
 
     fn visit_expr_async(&mut self, e: &'ast syn::ExprAsync) {
-        self.nested(|v| v.visit_block(&e.block));
+        self.nested_block(|v| v.visit_block(&e.block));
     }
 
     fn visit_expr_const(&mut self, e: &'ast syn::ExprConst) {
-        self.nested(|v| v.visit_block(&e.block));
+        self.nested_block(|v| v.visit_block(&e.block));
     }
 
     fn visit_local_init(&mut self, l: &'ast syn::LocalInit) {
         self.visit_expr(&l.expr);
-        if let Some((_, diverge)) = &l.diverge {
+        if let Some((else_token, diverge)) = &l.diverge {
             self.m.complexity += 1;
+            self.structural(else_token.span);
             self.nested(|v| v.body(diverge));
         }
     }
 
     fn visit_expr_binary(&mut self, e: &'ast syn::ExprBinary) {
-        if matches!(e.op, syn::BinOp::And(_) | syn::BinOp::Or(_)) {
-            self.m.complexity += 1;
+        if !logical(&e.op) {
+            return visit::visit_expr_binary(self, e);
         }
-        visit::visit_expr_binary(self, e);
+        // The whole `&&`/`||` expression at once: each operator is a
+        // branch, each run of the same operator one cognitive increment.
+        let (mut ops, mut leaves) = (Vec::new(), Vec::new());
+        boolean_tree(&e.left, &mut ops, &mut leaves);
+        ops.push(&e.op);
+        boolean_tree(&e.right, &mut ops, &mut leaves);
+        self.m.complexity += ops.len() as u32;
+        let mut prev: Option<&syn::BinOp> = None;
+        for op in &ops {
+            if prev.is_none_or(|p| std::mem::discriminant(p) != std::mem::discriminant(op)) {
+                self.add(op.span(), 1);
+            }
+            prev = Some(op);
+        }
+        leaves.into_iter().for_each(|l| self.visit_expr(l));
+    }
+
+    fn visit_expr_break(&mut self, e: &'ast syn::ExprBreak) {
+        if e.label.is_some() {
+            self.add(e.break_token.span, 1);
+        }
+        visit::visit_expr_break(self, e);
+    }
+
+    fn visit_expr_continue(&mut self, e: &'ast syn::ExprContinue) {
+        if e.label.is_some() {
+            self.add(e.continue_token.span, 1);
+        }
     }
 
     fn visit_expr_try(&mut self, e: &'ast syn::ExprTry) {
@@ -314,6 +405,27 @@ impl<'ast> Visit<'ast> for MetricsWalk {
             Some(args) => args.iter().for_each(|a| self.visit_expr(a)),
             None => self.scan_tokens(m.tokens.clone()),
         }
+    }
+}
+
+fn logical(op: &syn::BinOp) -> bool {
+    matches!(op, syn::BinOp::And(_) | syn::BinOp::Or(_))
+}
+
+/// A boolean expression's `&&`/`||` operators in source order (through
+/// parentheses) and its other operands.
+fn boolean_tree<'a>(e: &'a Expr, ops: &mut Vec<&'a syn::BinOp>, leaves: &mut Vec<&'a Expr>) {
+    let mut inner = e;
+    while let Expr::Paren(p) = inner {
+        inner = &p.expr;
+    }
+    match inner {
+        Expr::Binary(b) if logical(&b.op) => {
+            boolean_tree(&b.left, ops, leaves);
+            ops.push(&b.op);
+            boolean_tree(&b.right, ops, leaves);
+        }
+        _ => leaves.push(e),
     }
 }
 
@@ -393,6 +505,134 @@ mod tests {
         assert_eq!(cc("let Some(y) = g() else { return };"), 2);
         // Guards add nothing themselves; their `&&` do count.
         assert_eq!(cc("match x { n if n > 1 && n < 3 => a(), _ => b() }"), 3);
+    }
+
+    /// Every cognitive rule: body of `fn f(x: u32)`, expected value.
+    const COGNITIVE: &[(&str, u32)] = &[
+        // Straight-line code, `?`, unlabelled jumps: nothing.
+        ("let y = x + 1;", 0),
+        ("let y = g()?; h(y?)?;", 0),
+        ("loop { if x > 1 { break } else { continue } return; }", 4),
+        // Structural: 1 plus the depth.
+        ("if x > 1 { a() }", 1),
+        ("if let Some(y) = o { a() }", 1),
+        ("while x > 0 {}", 1),
+        ("while let Some(y) = o {}", 1),
+        ("for i in v {}", 1),
+        ("loop { break }", 1),
+        ("let Some(y) = o else { return };", 1),
+        ("if a { if b { if c { d() } } }", 6),
+        ("for i in v { while w { loop { break } } }", 6),
+        ("let Some(y) = o else { if b { return } return };", 3),
+        // A match once, however many arms; its arms nest.
+        (
+            "match x { 0 => a(), 1 => b(), 2 => c(), 3 => d(), 4 => e(), 5 => f(), 6 => g(), 7 => h(), 8 => i(), _ => j() }",
+            1,
+        ),
+        ("match x { 0 => if a { b() }, _ => {} }", 3),
+        // Guards sit at the match's depth.
+        ("match x { n if n > 1 && n < 3 => a(), _ => b() }", 2),
+        // else if / else: 1, flat.
+        ("if a { b() } else { c() }", 2),
+        ("if a { b() } else if c { d() } else { e() }", 3),
+        (
+            "for i in v { if a { b() } else if c { d() } else { e() } }",
+            5,
+        ),
+        // An `if` inside an `else` is nested.
+        ("if a { b() } else { if c { d() } }", 4),
+        // Boolean runs: 1 per run of the same operator.
+        ("let y = a && b && c;", 1),
+        ("let y = a && b || c;", 2),
+        ("let y = a && b || c && d;", 3),
+        ("let y = a || (b || c);", 1),
+        ("let y = a && (b || c);", 2),
+        ("let y = !(a && b) && c;", 2),
+        ("let y = g(a && b) || c;", 2),
+        ("if a && b { c() }", 2),
+        // Closures nest, adding nothing themselves; blocks don't nest.
+        ("let g = || x > 1;", 0),
+        ("let g = || if a { b() };", 2),
+        ("let g = || async move { if a { b() } };", 2),
+        ("unsafe { if a { b() } }", 1),
+        ("{ if a { b() } }", 1),
+        ("let y = async { if a { b() } };", 1),
+        ("let y = const { if a { 1 } else { 2 } };", 2),
+        ("for i in v { unsafe { if a { b() } } }", 3),
+        // Labelled break/continue: 1, flat.
+        (
+            "'o: for i in v { for j in w { if a { continue 'o } if b { break 'o } } }",
+            1 + 2 + 3 + 1 + 3 + 1,
+        ),
+        ("let y = 'b: { if a { break 'b 1 } 2 };", 2),
+        // Expression macros' arguments count; other macros are opaque.
+        ("println!(\"{}\", if a { 1 } else { 2 });", 2),
+        ("my_macro!(if a { 1 } else { 2 });", 0),
+    ];
+
+    #[test]
+    fn cognitive_complexity_rules() {
+        for (body, want) in COGNITIVE {
+            let src = format!("fn f(x: u32) {{ {body} }}");
+            assert_eq!(metrics(&src, "f").cognitive_complexity, *want, "{body}");
+        }
+    }
+
+    #[test]
+    fn worst_increment_is_the_largest_first_in_source_order() {
+        let worst = |src: &str| metrics(src, "f").worst_increment.map(|w| (w.line, w.value));
+        assert_eq!(worst("fn f() {}"), None);
+        // Ties: the first.
+        assert_eq!(
+            worst(
+                "fn f() {
+    if a {}
+    if b {}
+}"
+            ),
+            Some((2, 1))
+        );
+        // The deepest construct, not the boolean run before it.
+        assert_eq!(
+            worst(
+                "fn f() {
+    let y = a && b || c;
+    for i in v {
+        if c {}
+    }
+}"
+            ),
+            Some((4, 2))
+        );
+        // A guard (visited before earlier arms' bodies) loses a tie to an
+        // earlier arm.
+        assert_eq!(
+            worst(
+                "fn f() {
+    match x {
+        A => if a {},
+        B if (|| if b { true } else { false })() => {}
+        _ => {}
+    }
+}"
+            ),
+            Some((3, 2))
+        );
+    }
+
+    #[test]
+    fn arms_and_remainders_carry_cognitive_complexity() {
+        let arm: syn::Arm = syn::parse_str("A => { if a { if b { c() } } }").unwrap();
+        assert_eq!(arm_metrics(&arm).cognitive_complexity, 3);
+        let block: Block = syn::parse_str(
+            "{ let y = if a { 1 } else { 2 }; match y { 1 => if b { c() }, _ => {} } }",
+        )
+        .unwrap();
+        let Some(syn::Stmt::Expr(Expr::Match(m), None)) = block.stmts.last() else {
+            panic!("tail match");
+        };
+        // The lets count; the match and its arms don't.
+        assert_eq!(remainder_metrics(&block, m).cognitive_complexity, 2);
     }
 
     #[test]

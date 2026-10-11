@@ -14,8 +14,8 @@
 --          Directories get a red `●` when a hot file is inside.
 --   lua/mbloaty/lens.lua  in a Rust buffer, marks only what earned the file
 --                         its dot or `•`, at the end of the culprit fn's
---                         line: `◂ split? 100 lines · cyclomatic complexity
---                         14`, `◂ duplicate of
+--                         line: `◂ split? 100 lines · cognitive complexity
+--                         22`, `◂ duplicate of
 --                         f · other/file.rs:27`, ...
 --   lua/mbloaty/text.lua  the words both use.
 -- See tools/bloaty: `bloaty summary` / `findings` / `metrics` --help.
@@ -63,7 +63,7 @@ local MARK_KINDS = { "duplicate", "unused", "single-impl-trait" }
 local DEBOUNCE_MS = 1500
 -- The `--json` format this code reads (bloaty's `schema` field). Older or
 -- unversioned output is refused, not misread.
-local SCHEMA = 7
+local SCHEMA = 11
 -- Called with (dir, root data) when a root's runs finish (the lens).
 local listeners = {}
 

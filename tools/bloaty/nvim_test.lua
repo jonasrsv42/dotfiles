@@ -168,7 +168,7 @@ local function test_column()
   eq(column("core/src/hot.rs"), { " ", "●", "   80 " }, "column: hot file has its count and dot")
   eq(column("core/src/shapes.rs"), { "•", " ", "   24 " }, "column: findings mark on shapes.rs")
   eq(column("core/src/badarm.rs"), { " ", "●", "   43 " }, "column: warm file has a dot")
-  eq(column("core/src/routes.rs"), { " ", "●", "   57 " }, "column: noted file has a dot")
+  eq(column("core/src/routes.rs"), { " ", "●", "   75 " }, "column: noted file has a dot")
   local function dot_hl(rel)
     return tree.component({}, node(rel), state, 200)[2].highlight
   end
@@ -176,8 +176,8 @@ local function test_column()
     { "BloatySmellHot", "BloatySmellWarm", "BloatySmellNoted" }, "column: dot colours hot / warm / noted")
   eq(column("core/src/long.rs"), { " ", " ", "   43 " }, "column: a long fn under the bar is plain")
   eq(column("core/src/f01.rs"), { " ", " ", "   13 " }, "column: cool file is plain")
-  eq(column("core/src", "directory"), { "•", "●", "  751 " }, "column: directory sums and inherits hot")
-  eq(column(""), { "•", " ", "  829 " }, "column: root row never gets a dot")
+  eq(column("core/src", "directory"), { "•", "●", "  811 " }, "column: directory sums and inherits hot")
+  eq(column(""), { "•", " ", "  889 " }, "column: root row never gets a dot")
   eq(column("Cargo.toml"), {}, "column: nothing on non-Rust files")
 
 end
@@ -188,13 +188,12 @@ local function test_lens()
   wait("hot.rs lens", function()
     return next((marks())) ~= nil
   end)
-  eq(marks(), { [11] = "◂ split? 71 lines · cyclomatic complexity 25 · nesting 7" }, "lens: hot.rs culprits merge on plan's line")
+  eq(marks(), { [11] = "◂ split? 71 lines · cognitive complexity 61" }, "lens: hot.rs culprits merge on plan's line")
 
   vim.cmd.edit("core/src/badarm.rs")
   eq(marks(), {
-    [1] = "◂ big file? 43 impl lines",
-    [22] = "◂ simplify? cyclomatic complexity 12 · arm Op::Rebalance 11 · nesting 4",
-  }, "lens: a dispatch's bad arm is the culprit, marked on the arm (arm under the split floor: big file)")
+    [22] = "◂ simplify? cognitive complexity 17 · arm Op::Rebalance 16",
+  }, "lens: a dispatch's bad arm is the culprit, marked on the arm (only culprits: no size verdict)")
 
   -- Noted: what was excused, in blue.
   local function noted(rel, want, what)
@@ -205,10 +204,10 @@ local function test_lens()
       eq(hls[line], "BloatyLensNoted", what .. ": blue at line " .. line)
     end
   end
-  noted("core/src/routes.rs", { [14] = "◂ table · 19 entries" }, "lens: a table")
+  noted("core/src/routes.rs", { [14] = "◂ table · 37 entries" }, "lens: a table")
   noted("core/src/allowed.rs", { [12] = "◂ allowed · too_many_lines" }, "lens: an allowed lint")
-  -- The clean dispatch `weight` (line 67) gets nothing.
-  noted("core/src/dispatch.rs", { [24] = "◂ dispatch · 6 arms · shared prefix in 4 arms (1 statement)" },
+  -- The clean dispatch `weight` (line 87) gets nothing.
+  noted("core/src/dispatch.rs", { [26] = "◂ dispatch · 8 arms · shared prefix in 4 arms (1 statement)" },
     "lens: a dispatch with a shared prefix")
   vim.cmd.edit("core/src/long.rs")
   eq(marks(), {}, "lens: no marks on a long fn under the bar")
@@ -254,8 +253,9 @@ local function test_quickfix()
   eq(vim.tbl_map(function(it)
     return { it.lnum, it.text }
   end, q.items), {
-    { 11, "split? plan(): 71 lines · cyclomatic complexity 25 · nesting 7" },
-  }, "quickfix: hot.rs culprits, merged on their line")
+    { 11, "split? plan(): 71 lines · cognitive complexity 61" },
+    { 1, "also: 80 impl lines" },
+  }, "quickfix: hot.rs culprits, merged on their line, then the rest without a verdict")
   vim.cmd.cclose()
 
   local texts = qf("core/src/fragile.rs")
@@ -263,11 +263,11 @@ local function test_quickfix()
   eq(texts[2], "19 panic: assert! in Registry::add()", "quickfix: panic sites from bloaty metrics")
 
   eq(qf("core/src/dispatch.rs"), {
-    "24 note: dispatch run(): 6 arms · shared prefix in 4 arms (1 statement)",
-    "27   shared prefix 1/4",
-    "35   shared prefix 2/4",
-    "43   shared prefix 3/4",
-    "52   shared prefix 4/4",
+    "26 note: dispatch run(): 8 arms · shared prefix in 4 arms (1 statement)",
+    "29   shared prefix 1/4",
+    "37   shared prefix 2/4",
+    "45   shared prefix 3/4",
+    "54   shared prefix 4/4",
   }, "quickfix: a noted dispatch and each copy of its shared prefix")
 
   eq(qf("core/src/dup_a.rs"), {
@@ -289,14 +289,31 @@ local function test_quickfix()
     "73   copy: Left::twice() · line 73",
   }, "quickfix: duplicate findings with their copies, then notes with their facts")
 
-  eq(qf("core/src/badarm.rs")[1], "22 split? apply(): 28 lines · arm Op::Rebalance 24 · cyclomatic complexity 12 (arm 11) · nesting 4",
-    "quickfix: the bad arm, named")
+  eq(qf("core/src/badarm.rs"), {
+    "22 simplify? apply(): cognitive complexity 17 · arm Op::Rebalance 16",
+    "22 also: apply: 28 lines · arm Op::Rebalance 24",
+    "1 also: 43 impl lines",
+  }, "quickfix: the bad arm, named; size isn't a culprit, so no verdict")
 end
 
 local function test_words()
   -- A same-shape duplicate reads as a near-duplicate (its facts are under
   -- `dup`, as init.lua's `file_findings` keeps them).
   local text = require("mbloaty.text")
+  -- A long flat fn reads gentler than a split.
+  local flat = text.culprits({ smell = { level = "warm", dims = {
+    { dim = "size", metric = "largest_fn", value = 104, name = "steps", line = 43, culprit = true, flat = true },
+  } } })
+  eq({ flat[1].verdict, flat[1].ev, flat[1].list }, { "long?", "104 lines · flat", "long? steps(): 104 lines · flat" },
+    "words: a long flat fn")
+  local arm = text.culprits({ smell = { level = "warm", dims = {
+    { dim = "size", metric = "largest_fn", value = 171, name = "handle_message", line = 17, culprit = true, flat = true,
+      arm = { name = "ServerError::Listen", line = 90, value = 96 } },
+    { dim = "complexity", metric = "cognitive_complexity", value = 6, name = "handle_message", line = 17 },
+  } } }, true)
+  eq({ arm[1].line, arm[1].verdict, arm[1].ev }, { 90, "long?", "arm ServerError::Listen 96 lines · flat (fn 171)" },
+    "words: a long flat arm")
+  eq({ #arm, arm[2].list }, { 2, "also: handle_message: cognitive complexity 6" }, "words: a dim that isn't a culprit")
   local f = {
     kind = "duplicate", name = "a", line = 1, dup = { identical = false },
     others = { { name = "b", path = "/x/b.rs", line = 2 } },
@@ -319,12 +336,17 @@ local function test_explain()
     die("B: dup_b.rs facts\n  want: " .. want .. "\n  got:  " .. said)
   end
   ok("B: a duplicate's facts (crates and the dependency between them, no reuse claim)")
+  want = "max cognitive complexity: 1 (adler)"
+  if not said:find(want, 1, true) then
+    die("B: dup_b.rs max cognitive\n  want: " .. want .. "\n  got:  " .. said)
+  end
+  ok("B: max cognitive complexity")
 end
 
 local function test_info()
   -- <leader>bi on the dispatch: its shape and the note.
   vim.cmd.edit("core/src/dispatch.rs")
-  vim.api.nvim_win_set_cursor(0, { 26, 0 })
+  vim.api.nvim_win_set_cursor(0, { 28, 0 })
   lens.info()
   local float
   wait("the info float", function()
@@ -336,14 +358,15 @@ local function test_info()
     end
   end)
   local lines = vim.api.nvim_buf_get_lines(vim.api.nvim_win_get_buf(float), 0, -1, false)
-  eq({ lines[1], lines[3], lines[4], lines[5], lines[6], lines[8] }, {
+  eq({ lines[1], lines[2], lines[3], lines[4], lines[5], lines[6], lines[8] }, {
     "run()",
-    "dispatch · 6 arms, 0 counted (0 lines · cyclomatic complexity 0), the small ones excused",
-    "the rest: 4 lines · cyclomatic complexity 1 · nesting 0",
-    "worst arms: nesting 1 Cmd::Add :26",
-    "shared prefix: 4 arms start with the same 1 statement (lines 27, 35, 43, 52); hoist it above the match or into a helper",
-    "◂ dispatch · 6 arms · shared prefix in 4 arms (1 statement): noted, not counted",
-  }, "<leader>bi: a dispatch's shape, worst arm and shared prefix")
+    "cognitive complexity 11 (worst at line 29) · cyclomatic 7 · nesting 2",
+    "60 lines · 2 params · 0 clones",
+    "dispatch · 8 arms, 0 counted (0 lines · cognitive complexity 0), the small ones excused",
+    "the rest: 4 lines · cognitive complexity 0 · cyclomatic 1 · nesting 0",
+    "shared prefix: 4 arms start with the same 1 statement (lines 29, 37, 45, 54); hoist it above the match or into a helper",
+    "◂ dispatch · 8 arms · shared prefix in 4 arms (1 statement): noted, not counted",
+  }, "<leader>bi: a dispatch's complexity, shape and shared prefix")
   vim.api.nvim_win_close(float, true)
 
   -- <leader>bi on a duplicate note: its facts.

@@ -3,7 +3,7 @@ Where does the code in a Rust project live, and where is it bloated?
 Workflow: `bloaty summary` to see where the code is, drill in with
 `--by module --depth N` or a PATH, then `bloaty findings PATH --json` (or
 `--kind duplicate` etc.) for ranked places to cut, and `bloaty metrics PATH`
-for per-fn cyclomatic complexity, nesting and panic sites. Findings are hints: check
+for per-fn cognitive complexity, nesting and panic sites. Findings are hints: check
 each one, and compile after removing anything.
 
 bloaty is purely syntactic, to stay fast: names aren't resolved (same-named

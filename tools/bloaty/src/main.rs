@@ -105,7 +105,7 @@ enum Cmd {
         #[arg(long)]
         include_pub: bool,
     },
-    /// Per-fn cyclomatic complexity, nesting, parameters, panic sites and clones.
+    /// Per-fn cognitive and cyclomatic complexity, nesting, parameters, panic sites and clones.
     #[command(
         long_about = include_str!("help/metrics.txt").trim_end()
     )]
@@ -274,7 +274,7 @@ fn run(max_depth: usize) -> i32 {
 /// Version of the `--json` output, its first field `schema`. Bumped when a
 /// field consumers rely on changes or appears (the Neovim integration
 /// refuses older output rather than misread it).
-const SCHEMA: u32 = 7;
+const SCHEMA: u32 = 11;
 
 #[derive(serde::Serialize)]
 struct Versioned<'a, T> {
@@ -299,7 +299,7 @@ mod tests {
     /// The help text states each threshold as the code has it.
     #[test]
     fn help_states_the_thresholds() {
-        use crate::measure::Measure::{CyclomaticComplexity as Cc, Lines, Nesting};
+        use crate::measure::Measure::{CognitiveComplexity as Cog, Lines};
         use crate::{shape, smell};
         let flat = |t: &str| t.split_whitespace().collect::<Vec<_>>().join(" ");
         let summary = flat(include_str!("help/summary.txt"));
@@ -311,7 +311,6 @@ mod tests {
                 &summary,
                 format!(">= {} impl lines and a fn", smell::MIN_IMPL_LINES),
             ),
-            (&summary, format!("nesting from {}", Nesting.bar())),
             (
                 &summary,
                 format!(
@@ -332,24 +331,23 @@ mod tests {
             (
                 &summary,
                 format!(
-                    "a fn of >= {} lines, cyclomatic complexity >= {}, nesting >= {}",
+                    "a fn of >= {} lines, cognitive complexity >= {} or the panic density",
                     Lines.bar(),
-                    Cc.bar(),
-                    Nesting.bar()
+                    Cog.bar(),
                 ),
             ),
             (
                 &summary,
                 format!(
-                    "from {} lines or cyclomatic complexity {} the allow is ignored",
+                    "from {} lines or cognitive complexity {} the allow is ignored",
                     Lines.allow_ceiling(),
-                    Cc.allow_ceiling(),
+                    Cog.allow_ceiling(),
                 ),
             ),
             (
                 &summary,
                 format!(
-                    "small arms (<= {} code lines and cyclomatic complexity <= {}",
+                    "small arms (<= {} code lines and cognitive complexity <= {}",
                     shape::SMALL_ARM_LINES,
                     shape::SMALL_ARM_COMPLEXITY
                 ),
@@ -361,10 +359,32 @@ mod tests {
             (
                 &summary,
                 format!(
-                    "arm of >= {} lines, cyclomatic complexity >= {} or nesting >= {}",
+                    ">= {} lines with nothing nested: no cognitive increment over {}",
                     Lines.bad_arm(),
-                    Cc.bad_arm(),
-                    Nesting.bad_arm()
+                    crate::measure::FLAT_MAX_INCREMENT
+                ),
+            ),
+            (
+                &findings,
+                format!(
+                    "clippy::too_many_lines (below {} lines)",
+                    Lines.allow_ceiling()
+                ),
+            ),
+            (
+                &summary,
+                format!(
+                    "arm of >= {} lines or cognitive complexity >= {} keeps",
+                    Lines.bad_arm(),
+                    Cog.bad_arm(),
+                ),
+            ),
+            (
+                &summary,
+                format!(
+                    "a fn of >= {} lines or cognitive complexity >= {}, and the panic density",
+                    Lines.bad_arm(),
+                    Cog.bad_arm(),
                 ),
             ),
             (
@@ -390,7 +410,7 @@ mod tests {
             (
                 &metrics,
                 format!(
-                    ">= {} arms whose median arm (the upper one) has <= {} code lines and cyclomatic complexity <= {}",
+                    ">= {} arms, at least half of them small (<= {} code lines and cognitive complexity <= {}",
                     shape::MIN_ARMS,
                     shape::SMALL_ARM_LINES,
                     shape::SMALL_ARM_COMPLEXITY

@@ -6,6 +6,13 @@
   "excluded_duplicates": {
     "substance": 1
   },
+  "excused": {
+    "long_fn": {
+      "allowed": 1,
+      "dispatch": 1,
+      "table": 1
+    }
+  },
   "findings": [
     {
       "category": "impl",
@@ -271,7 +278,7 @@
   ],
   "hidden_pub": 0,
   "root": "<ws>",
-  "schema": 7,
+  "schema": 11,
   "shown": {
     "duplicate": 2,
     "long_fn": 1,

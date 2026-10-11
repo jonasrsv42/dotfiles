@@ -441,7 +441,8 @@ mod tests {
             g.smell.clone().unwrap()
         };
         let whole = smell_of_x(fx.root.clone());
-        assert_eq!(whole.level, Some(Level::Hot));
+        // Long but flat (no branches): warm at most.
+        assert_eq!(whole.level, Some(Level::Warm));
         // b's larger file counts too: x is not the top.
         assert!(whole.size < 1.0);
         assert_eq!(smell_of_x(fx.root.join("a")), whole);

@@ -90,9 +90,13 @@ function M.explain(state)
     if g.largest_fn then
       table.insert(lines, string.format("largest fn: %s (%d lines)", g.largest_fn.name, g.largest_fn.lines))
     end
-    local cc = g.max_cyclomatic_complexity
-    if cc then
-      table.insert(lines, string.format("max cyclomatic complexity: %d (%s)", cc.value, cc.name))
+    local cog = g.max_cognitive_complexity
+    if cog then
+      table.insert(lines, string.format("max cognitive complexity: %d (%s)", cog.value, cog.name))
+    end
+    local cc, n = g.max_cyclomatic_complexity, g.max_nesting
+    if cc and n then
+      table.insert(lines, string.format("max cyclomatic complexity: %d (%s) · max nesting: %d (%s)", cc.value, cc.name, n.value, n.name))
     end
     if (g.panics or 0) > 0 then
       table.insert(lines, string.format("panic sites: %d", g.panics))

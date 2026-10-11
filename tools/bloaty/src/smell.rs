@@ -4,7 +4,7 @@
 //! levels walk the Pareto fronts, so a file dominated on every axis by
 //! another never ranks above it.
 
-use crate::measure::{Dim, Measure};
+use crate::measure::{Dim, FLAT_MAX_INCREMENT, Measure};
 use crate::names::collapse_generics;
 use crate::rollup::{ArmAt, Excuse, FileMetrics, FnScore, effective_metrics, file_metrics};
 use crate::scan::Scan;
@@ -29,12 +29,6 @@ const MIN_DENSITY: f64 = 1.0;
 /// With fewer qualifying files than this, ranks are noise: fixed bands by
 /// density are used instead.
 const MIN_RANKED_FRAGILE: usize = 5;
-/// Below `Measure::Nesting.bar()` nesting is ordinary code (ties at depths
-/// 2-3 would otherwise read as top decile): it adds nothing to the
-/// complexity dimension.
-fn deep(n: u32) -> bool {
-    n >= Measure::Nesting.bar()
-}
 
 #[derive(Serialize, Clone, Copy, PartialEq, Eq, Debug)]
 #[serde(rename_all = "snake_case")]
@@ -89,6 +83,9 @@ pub enum Signal {
         name: String,
         line: usize,
         arm: Option<ArmAt>,
+        /// A long flat fn (or arm): culprit-sized lines with nothing nested
+        /// (`measure::FLAT_MAX_INCREMENT`).
+        flat: bool,
     },
     /// `value`: the file's impl lines.
     ImplLines { value: usize },
@@ -107,6 +104,7 @@ impl Serialize for Signal {
                 name,
                 line,
                 arm,
+                flat,
             } => {
                 m.serialize_entry("metric", measure.metric())?;
                 m.serialize_entry("value", value)?;
@@ -114,6 +112,9 @@ impl Serialize for Signal {
                 m.serialize_entry("line", line)?;
                 if let Some(arm) = arm {
                     m.serialize_entry("arm", arm)?;
+                }
+                if *flat {
+                    m.serialize_entry("flat", flat)?;
                 }
             }
             Signal::ImplLines { value } => {
@@ -131,14 +132,31 @@ impl Serialize for Signal {
 }
 
 impl Signal {
-    fn of_fn(measure: Measure, value: u32, name: &str, line: usize, arm: Option<ArmAt>) -> Self {
+    /// `worst`: the largest cognitive increment of the fn (or `arm`)
+    /// standing for `value`, for lines.
+    fn of_fn(
+        measure: Measure,
+        value: u32,
+        name: &str,
+        line: usize,
+        arm: Option<ArmAt>,
+        worst: Option<u32>,
+    ) -> Self {
+        let flat = measure == Measure::Lines
+            && value >= measure.bad_arm()
+            && worst.is_some_and(|w| w <= FLAT_MAX_INCREMENT);
         Signal::Fn {
             measure,
             value,
             name: name.to_string(),
             line,
             arm,
+            flat,
         }
+    }
+
+    fn flat(&self) -> bool {
+        matches!(self, Signal::Fn { flat: true, .. })
     }
 
     fn dim(&self) -> Dim {
@@ -165,6 +183,7 @@ impl Signal {
                 value,
                 name,
                 arm,
+                flat,
                 ..
             } => {
                 let name = collapse_generics(name);
@@ -172,7 +191,8 @@ impl Signal {
                     Some(a) => format!("{name}, arm {}", a.name),
                     None => name,
                 };
-                format!("{} ({at})", measure.text(*value))
+                let flat = if *flat { ", flat" } else { "" };
+                format!("{} ({at}{flat})", measure.text(*value))
             }
             Signal::ImplLines { value } => format!("{value} impl lines"),
             Signal::PanicDensity { value, panics } => {
@@ -189,8 +209,10 @@ pub struct Reason {
     pub dim: Dim,
     #[serde(flatten)]
     pub signal: Signal,
-    /// A real fn signal at or past `Measure::bad_arm`: worth marking where
-    /// it is (the lens's floor).
+    /// A real fn signal at or past `Measure::bad_arm`, or the panic density
+    /// (only ever a reason when it qualifies): worth marking where it is.
+    /// A hot or warm file has at least one; a hot one, one that isn't a
+    /// long flat fn (`Signal::Fn::flat`).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub culprit: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -199,8 +221,11 @@ pub struct Reason {
 
 impl Reason {
     fn new(signal: Signal) -> Self {
-        let culprit =
-            matches!(signal, Signal::Fn { measure, value, .. } if value >= measure.bad_arm());
+        let culprit = match &signal {
+            Signal::Fn { measure, value, .. } => *value >= measure.bad_arm(),
+            Signal::PanicDensity { .. } => true,
+            Signal::ImplLines { .. } => false,
+        };
         Reason {
             dim: signal.dim(),
             signal,
@@ -209,12 +234,21 @@ impl Reason {
         }
     }
 
-    fn excused(signal: Signal, excuse: &Excuse) -> Self {
+    /// Not a culprit, so not a flat one either.
+    fn excused(mut signal: Signal, excuse: &Excuse) -> Self {
+        if let Signal::Fn { flat, .. } = &mut signal {
+            *flat = false;
+        }
         Reason {
             excused: Some(excuse.clone()),
             culprit: false,
             ..Reason::new(signal)
         }
+    }
+
+    /// A culprit that can make a file hot: not a long flat fn.
+    fn hot_culprit(&self) -> bool {
+        self.culprit && !self.signal.flat()
     }
 
     /// Whether it is about the same fn and measure as `other`.
@@ -239,22 +273,36 @@ pub struct Input<'a> {
     pub metrics: &'a FileMetrics,
 }
 
+/// A lines signal for `f` (flat by the arm's increments when it blames one).
+fn size_signal(f: &crate::rollup::FnSize) -> Signal {
+    let worst = f.arm.as_ref().map_or(f.worst, |a| a.worst);
+    Signal::of_fn(
+        Measure::Lines,
+        f.lines as u32,
+        &f.name,
+        f.line,
+        f.arm.clone(),
+        Some(worst),
+    )
+}
+
 impl Input<'_> {
     /// The file's peak for a measure, as a signal.
     fn peak(&self, m: Measure) -> Option<Signal> {
         let fm = self.metrics;
         let fn_peak = |p: &Option<crate::rollup::FnPeak>| {
             p.as_ref()
-                .map(|p| Signal::of_fn(m, p.value, &p.name, p.line, p.arm.clone()))
+                .map(|p| Signal::of_fn(m, p.value, &p.name, p.line, p.arm.clone(), None))
         };
         match m {
-            Measure::Lines => fm
-                .largest_fn
-                .as_ref()
-                .map(|f| Signal::of_fn(m, f.lines as u32, &f.name, f.line, f.arm.clone())),
-            Measure::CyclomaticComplexity => fn_peak(&fm.max_complexity),
-            Measure::Nesting => fn_peak(&fm.max_nesting),
+            Measure::Lines => fm.largest_fn.as_ref().map(size_signal),
+            Measure::CognitiveComplexity => fn_peak(&fm.max_cognitive_complexity),
         }
+    }
+
+    /// The largest fn with something nested, as a lines signal.
+    fn nested_peak(&self) -> Option<Signal> {
+        self.metrics.largest_nested.as_ref().map(size_signal)
     }
 
     fn peak_value(&self, m: Measure) -> Option<u32> {
@@ -319,8 +367,8 @@ pub fn for_scan(scan: &Scan) -> Vec<Option<Smell>> {
 
 /// Per-signal percentiles of every input, before they collapse.
 struct Pcts {
-    /// Fn peaks, by `Measure::index` (nesting zeroed when not deep).
-    fns: [Vec<f64>; 3],
+    /// Fn peaks, by `Measure::index`.
+    fns: [Vec<f64>; Measure::COUNT],
     lines: Vec<f64>,
     fragility: Vec<f64>,
 }
@@ -362,23 +410,7 @@ fn rank(inputs: &[Input], paths: &[&str]) -> Ranked {
     let pct =
         |f: &dyn Fn(&Input) -> Option<f64>| percentiles(&inputs.iter().map(f).collect::<Vec<_>>());
     let fragile = inputs.iter().filter(|i| qualifies_fragile(i)).count();
-    let fn_pct = |m: Measure| {
-        let p = pct(&|i| i.peak_value(m).map(f64::from));
-        if m != Measure::Nesting {
-            return p;
-        }
-        // Ranked among all files, then zeroed when not deep.
-        p.into_iter()
-            .zip(inputs)
-            .map(|(p, i)| {
-                if i.peak_value(m).is_some_and(deep) {
-                    p
-                } else {
-                    0.0
-                }
-            })
-            .collect()
-    };
+    let fn_pct = |m: Measure| pct(&|i| i.peak_value(m).map(f64::from));
     let p = Pcts {
         fns: Measure::ALL.map(fn_pct),
         lines: pct(&|i| Some(i.impl_lines as f64)),
@@ -394,19 +426,31 @@ fn rank(inputs: &[Input], paths: &[&str]) -> Ranked {
             pct(&|i| i.metrics.panic_density.filter(|_| qualifies_fragile(i)))
         },
     };
-    let [largest, cc, nest] = &p.fns;
+    let [largest, cognitive] = &p.fns;
     let dims: Vec<[f64; 3]> = (0..inputs.len())
         .map(|k| {
             [
                 round2(largest[k].max(p.lines[k])),
-                round2(cc[k].max(nest[k])),
+                round2(cognitive[k]),
                 round2(p.fragility[k]),
             ]
         })
         .collect();
-    let bar: Vec<bool> = inputs.iter().map(past_bar).collect();
+    // Past the bar, with a culprit among the reasons a level would give
+    // (for hot, one that isn't a long flat fn).
+    let eligible: Vec<[bool; 2]> = (0..inputs.len())
+        .map(|k| {
+            let bar = past_bar(&inputs[k]);
+            let hot = reasons(&inputs[k], &p, k, Level::Hot);
+            let warm = reasons(&inputs[k], &p, k, Level::Warm);
+            [
+                bar && hot.iter().any(Reason::hot_culprit),
+                bar && warm.iter().any(|r| r.culprit),
+            ]
+        })
+        .collect();
     let fronts = fronts(&dims);
-    let levels = levels(&dims, &fronts, &bar, paths);
+    let levels = levels(&dims, &fronts, &eligible, paths);
     Ranked {
         p,
         dims,
@@ -426,8 +470,9 @@ pub fn score(inputs: &[Input], paths: &[&str]) -> Vec<Smell> {
 /// worse of both levels when an excused dispatch has a bad arm
 /// (`Measure::bad_arm`, ranking aside). Otherwise, a file that gets no
 /// level by its effective signals but would by its raw ones because of an
-/// excused fn is noted; hot and warm files carry such excused reasons too,
-/// unless a real reason already names the fn for that measure.
+/// excused fn past the culprit bar is noted; hot and warm files carry
+/// such excused reasons too, unless a real reason already names the fn
+/// for that measure.
 pub fn score_excusing(raw: &[Input], effective: &[Input], paths: &[&str]) -> Vec<Smell> {
     let r = rank(raw, paths);
     let e = rank(effective, paths);
@@ -437,7 +482,7 @@ pub fn score_excusing(raw: &[Input], effective: &[Input], paths: &[&str]) -> Vec
             let mut real =
                 e.levels[k].map_or_else(Vec::new, |l| reasons(&effective[k], &e.p, k, l));
             let bad = r.levels[k].map_or_else(Vec::new, |_| bad_arms(excused));
-            let kept = if bad.is_empty() {
+            let mut kept = if bad.is_empty() {
                 e.levels[k]
             } else {
                 worse(e.levels[k], r.levels[k])
@@ -447,9 +492,16 @@ pub fn score_excusing(raw: &[Input], effective: &[Input], paths: &[&str]) -> Vec
                     real.push(b);
                 }
             }
-            let mut noted: Vec<Reason> = r.levels[k]
+            // A bad arm keeps the raw level; hot still needs a culprit that
+            // isn't a long flat fn.
+            if kept == Some(Level::Hot) && !real.iter().any(Reason::hot_culprit) {
+                kept = Some(Level::Warm);
+            }
+            let noted: Vec<Reason> = r.levels[k]
                 .map_or_else(Vec::new, |l| reasons(&raw[k], &r.p, k, l))
                 .into_iter()
+                // An excused signal that would have been a culprit.
+                .filter(|reason| reason.culprit)
                 .filter_map(|reason| {
                     let (line, m) = reason.signal.about()?;
                     let excuse = excused.iter().find(|x| x.line == line)?.excuse_for(m)?;
@@ -457,11 +509,6 @@ pub fn score_excusing(raw: &[Input], effective: &[Input], paths: &[&str]) -> Vec
                     (!real.iter().any(|x| x.same(&reason))).then_some(reason)
                 })
                 .collect();
-            if noted.is_empty() && kept.is_none() && r.levels[k].is_some() {
-                // Levelled by file-wide signals (impl lines) only while an
-                // excused fn met the bar.
-                noted = bar_reasons(excused);
-            }
             let level = kept.or((!noted.is_empty()).then_some(Level::Noted));
             let [size, complexity, fragility] = e.dims[k];
             Smell {
@@ -491,25 +538,9 @@ fn bad_arms(excused: &[FnScore]) -> Vec<Reason> {
             // The fn's effective number (remainder and counted arms), the
             // arm's own in `arm.value`.
             let value = x.effective[i].as_ref().map_or(arm.value, |s| s.value);
-            let signal = Signal::of_fn(m, value, &x.name, x.line, Some(arm.clone()));
+            let worst = Some(arm.worst);
+            let signal = Signal::of_fn(m, value, &x.name, x.line, Some(arm.clone()), worst);
             out.push(Reason::new(signal));
-        }
-    }
-    out
-}
-
-/// The own numbers of excused fns past the bar (`Measure::bar`), as
-/// excused reasons: what put a file levelled only by file-wide signals past
-/// the bar.
-fn bar_reasons(excused: &[FnScore]) -> Vec<Reason> {
-    let mut out = Vec::new();
-    for x in excused {
-        for m in Measure::ALL {
-            let value = x.own[m.index()];
-            if let Some(excuse) = x.excuse_for(m).filter(|_| value >= m.bar()) {
-                let signal = Signal::of_fn(m, value, &x.name, x.line, None);
-                out.push(Reason::excused(signal, excuse));
-            }
         }
     }
     out
@@ -526,14 +557,22 @@ fn reasons(input: &Input, p: &Pcts, k: usize, level: Level) -> Vec<Reason> {
     let above = |p: f64| round2(p) >= threshold;
     let mut out = Vec::new();
     let fn_signal = |m: Measure| input.peak(m).filter(|_| above(p.fns[m.index()][k]));
-    out.extend(fn_signal(Measure::Lines));
+    let size = fn_signal(Measure::Lines);
+    // A flat largest fn mustn't hide a culprit-sized one with something
+    // nested: name that one too.
+    let shadowed = size
+        .as_ref()
+        .filter(|s| s.flat())
+        .and_then(|_| input.nested_peak())
+        .filter(|s| matches!(s, Signal::Fn { value, .. } if *value >= Measure::Lines.bad_arm()));
+    out.extend(size);
+    out.extend(shadowed);
     if above(p.lines[k]) {
         out.push(Signal::ImplLines {
             value: input.impl_lines,
         });
     }
-    out.extend(fn_signal(Measure::CyclomaticComplexity));
-    out.extend(fn_signal(Measure::Nesting));
+    out.extend(fn_signal(Measure::CognitiveComplexity));
     let m = input.metrics;
     if let Some(d) = m.panic_density.filter(|_| above(p.fragility[k])) {
         out.push(Signal::PanicDensity {
@@ -619,12 +658,18 @@ fn fronts(dims: &[[f64; 3]]) -> Vec<usize> {
 }
 
 /// hot: walking files by (front, top-decile dimensions, sum, path), the
-/// first past the bar with a dimension >= 0.9, up to 5% of files. warm:
-/// the rest past the bar with a dimension >= 0.75, by sum then path, up to
-/// 10% more; none in projects under 20 files. Walking the fronts lets later
-/// ones fill in when front 1 is small, as it is in three dimensions with
-/// many files.
-fn levels(dims: &[[f64; 3]], fronts: &[usize], bar: &[bool], paths: &[&str]) -> Vec<Option<Level>> {
+/// first eligible for hot with a dimension >= 0.9, up to 5% of files. warm:
+/// the rest eligible for warm with a dimension >= 0.75, by sum then path,
+/// up to 10% more; none in projects under 20 files. Eligible (`eligible`,
+/// by level: hot, warm): past the bar, and a culprit among the reasons
+/// that level would give. Walking the fronts lets later ones fill in when
+/// front 1 is small, as it is in three dimensions with many files.
+fn levels(
+    dims: &[[f64; 3]],
+    fronts: &[usize],
+    eligible: &[[bool; 2]],
+    paths: &[&str],
+) -> Vec<Option<Level>> {
     let n = dims.len();
     let max = |d: &[f64; 3]| d.iter().copied().fold(0.0, f64::max);
     let top = |d: &[f64; 3]| d.iter().filter(|&&x| x >= HOT_DIM).count();
@@ -638,7 +683,7 @@ fn levels(dims: &[[f64; 3]], fronts: &[usize], bar: &[bool], paths: &[&str]) -> 
     let mut out = vec![None; n];
 
     let mut order: Vec<usize> = (0..n)
-        .filter(|&i| bar[i] && max(&dims[i]) >= HOT_DIM)
+        .filter(|&i| eligible[i][0] && max(&dims[i]) >= HOT_DIM)
         .collect();
     order.sort_by(|&a, &b| {
         (fronts[a], Reverse(top(&dims[a])))
@@ -655,7 +700,7 @@ fn levels(dims: &[[f64; 3]], fronts: &[usize], bar: &[bool], paths: &[&str]) -> 
         cap(WARM_SHARE)
     };
     let mut order: Vec<usize> = (0..n)
-        .filter(|&i| out[i].is_none() && bar[i] && max(&dims[i]) >= WARM_DIM)
+        .filter(|&i| out[i].is_none() && eligible[i][1] && max(&dims[i]) >= WARM_DIM)
         .collect();
     order.sort_by(|&a, &b| by_sum(a, b));
     for &i in order.iter().take(warm_cap) {
@@ -696,11 +741,11 @@ mod tests {
         (0..n).map(|i| format!("f{i:03}.rs")).collect()
     }
 
-    /// `levels` with every file past the bar and paths in index order.
+    /// `levels` with every file eligible and paths in index order.
     fn levels_of(dims: &[[f64; 3]]) -> Vec<Option<Level>> {
         let p = paths(dims.len());
         let p: Vec<&str> = p.iter().map(String::as_str).collect();
-        levels(dims, &fronts(dims), &vec![true; dims.len()], &p)
+        levels(dims, &fronts(dims), &vec![[true; 2]; dims.len()], &p)
     }
 
     #[test]
@@ -747,15 +792,21 @@ mod tests {
     }
 
     #[test]
-    fn the_bar_keeps_tidy_files_unlevelled() {
+    fn only_eligible_files_get_levels_and_free_their_slots() {
         let dims = vec![[1.0, 1.0, 0.0]; 40];
         let p = paths(40);
         let p: Vec<&str> = p.iter().map(String::as_str).collect();
-        let mut bar = vec![false; 40];
-        bar[7] = true;
-        let l = levels(&dims, &fronts(&dims), &bar, &p);
-        assert_eq!(l[7], Some(Level::Hot));
-        assert_eq!(l.iter().filter(|x| x.is_some()).count(), 1);
+        let mut eligible = vec![[false; 2]; 40];
+        eligible[7] = [true; 2];
+        // Eligible for warm only: the hot slots go to the next eligible.
+        eligible[9] = [false, true];
+        eligible[11] = [true; 2];
+        let l = levels(&dims, &fronts(&dims), &eligible, &p);
+        assert_eq!(
+            (l[7], l[9], l[11]),
+            (Some(Level::Hot), Some(Level::Warm), Some(Level::Hot))
+        );
+        assert_eq!(l.iter().filter(|x| x.is_some()).count(), 3);
     }
 
     #[test]
@@ -778,7 +829,7 @@ mod tests {
         assert_eq!((l[0], l[1]), (Some(Level::Hot), Some(Level::Warm)));
     }
 
-    fn file(lines: usize, cc: u32, panics: u32, impl_lines: usize) -> FileMetrics {
+    fn file(lines: usize, cog: u32, panics: u32, impl_lines: usize) -> FileMetrics {
         let peak = |value| {
             Some(FnPeak {
                 name: "<Node<A, B> as Build<C>>::build".into(),
@@ -793,14 +844,18 @@ mod tests {
                 line: 1,
                 lines,
                 arm: None,
+                // As if its cognitive complexity were all one increment.
+                worst: cog,
             }),
-            max_complexity: peak(cc),
-            max_nesting: peak(1),
+            max_cognitive_complexity: peak(cog),
+            max_complexity: None,
+            max_nesting: None,
             most_panics: None,
             panics,
             panic_density: (impl_lines >= 30).then(|| panics as f64 * 100.0 / impl_lines as f64),
             clones: 0,
             excused: Vec::new(),
+            largest_nested: None,
         }
     }
 
@@ -854,13 +909,70 @@ mod tests {
     }
 
     #[test]
-    fn shallow_nesting_adds_no_complexity() {
+    fn a_level_needs_a_culprit() {
+        // 20 ordinary files and one of 2000 impl lines: top size, past the
+        // bar by its 50-line fn, but nothing to point at.
         let mut files: Vec<(FileMetrics, usize)> =
-            (0..10).map(|_| (file(10, 0, 0, 40), 40)).collect();
-        files[3].0.max_nesting.as_mut().unwrap().value = 3;
-        files[4].0.max_nesting.as_mut().unwrap().value = 5;
+            (0..20).map(|i| (file(10 + i, 2, 0, 40), 40)).collect();
+        files.push((file(50, 2, 0, 2000), 2000));
         let s = run(&files);
-        assert_eq!((s[3].complexity, s[4].complexity), (0.0, 1.0));
+        assert_eq!((s[20].size, s[20].level), (1.0, None));
+        assert!(s[20].dims.is_empty() && s[20].why.is_none());
+        // A 60-line fn is a culprit; a flat one (nothing nested: no
+        // increment over 1) makes the file warm at most.
+        files[20] = (file(60, 2, 0, 2000), 2000);
+        assert_eq!(run(&files)[20].level, Some(Level::Hot));
+        files[20] = (file(60, 1, 0, 2000), 2000);
+        let s = run(&files);
+        assert_eq!(s[20].level, Some(Level::Warm));
+        let v = serde_json::to_value(&s[20]).unwrap();
+        assert_eq!(
+            (&v["dims"][0]["culprit"], &v["dims"][0]["flat"]),
+            (&true.into(), &true.into())
+        );
+        assert_eq!(
+            s[20].why.as_deref(),
+            Some("size: largest fn 60 lines (build, flat), 2000 impl lines")
+        );
+        // So is cognitive complexity 10, in a file past the bar.
+        files[20] = (file(45, 10, 0, 2000), 2000);
+        let s = run(&files);
+        assert_eq!(s[20].level, Some(Level::Hot));
+        assert!(
+            s[20]
+                .dims
+                .iter()
+                .any(|d| d.culprit && d.dim == Dim::Complexity)
+        );
+        // Below the bar (40 lines, 15), a culprit isn't enough.
+        files[20] = (file(39, 14, 0, 2000), 2000);
+        assert_eq!(run(&files)[20].level, None);
+    }
+
+    #[test]
+    fn a_longer_flat_fn_doesnt_hide_a_nested_one() {
+        let mut files: Vec<(FileMetrics, usize)> =
+            (0..20).map(|i| (file(10 + i, 2, 0, 40), 40)).collect();
+        let mut shadow = file(101, 1, 0, 300);
+        shadow.largest_nested = Some(FnSize {
+            name: "real".into(),
+            line: 120,
+            lines: 70,
+            arm: None,
+            worst: 3,
+        });
+        files.push((shadow, 300));
+        let s = run(&files);
+        assert_eq!(s[20].level, Some(Level::Hot));
+        assert_eq!(
+            s[20].why.as_deref(),
+            Some(
+                "size: largest fn 101 lines (build, flat), largest fn 70 lines (real), 300 impl lines"
+            )
+        );
+        // Under the culprit bar, it isn't named and doesn't count.
+        files[20].0.largest_nested.as_mut().unwrap().lines = 59;
+        assert_eq!(run(&files)[20].level, Some(Level::Warm));
     }
 
     #[test]
@@ -881,7 +993,7 @@ mod tests {
         assert_eq!(
             worst.why.as_deref(),
             Some(
-                "size: largest fn 225 lines (build), 400 impl lines; complexity: cyclomatic complexity 41 (<Node<…> as Build<…>>::build); fragility: 3.0 panics/100 lines (12 panics)"
+                "size: largest fn 225 lines (build), 400 impl lines; complexity: cognitive complexity 41 (<Node<…> as Build<…>>::build); fragility: 3.0 panics/100 lines (12 panics)"
             )
         );
         assert!(s[0].why.is_none() && s[0].level.is_none() && s[0].dims.is_empty());
@@ -897,7 +1009,7 @@ mod tests {
             [
                 ("size", "largest_fn"),
                 ("size", "impl_lines"),
-                ("complexity", "cyclomatic_complexity"),
+                ("complexity", "cognitive_complexity"),
                 ("fragility", "panic_density"),
             ]
         );
@@ -910,6 +1022,10 @@ mod tests {
         );
         assert!(v["dims"][3].get("name").is_none());
         assert_eq!(v["dims"][3]["dim"], "fragility");
+        // Culprits: the fns past the bad-arm bar and the panics, not impl
+        // lines.
+        let culprits: Vec<bool> = (0..4).map(|i| v["dims"][i]["culprit"] == true).collect();
+        assert_eq!(culprits, [true, false, true, true]);
     }
 
     fn to(v: &[(FileMetrics, usize)]) -> Vec<Input<'_>> {
@@ -926,12 +1042,12 @@ mod tests {
     }
 
     /// `build`, allowing too_many_lines.
-    fn allowed(own: [u32; 3]) -> FnScore {
+    fn allowed(own: [u32; 2]) -> FnScore {
         FnScore {
             name: "build".into(),
             line: 1,
             own,
-            effective: [None, stand(own[1]), stand(own[2])],
+            effective: [None, stand(own[1])],
             excuses: vec![Excuse::Allowed {
                 lint: crate::shape::Lint::TooManyLines,
             }],
@@ -942,7 +1058,7 @@ mod tests {
     /// 20 ordinary files (largest fns from `lines` up) and `last`, whose
     /// fn `build` is `allowed(own)` and effectively 12 lines long; scored
     /// with the excuses.
-    fn score_with_allowed(lines: usize, last: (FileMetrics, usize), own: [u32; 3]) -> Vec<Smell> {
+    fn score_with_allowed(lines: usize, last: (FileMetrics, usize), own: [u32; 2]) -> Vec<Smell> {
         let mut raw: Vec<(FileMetrics, usize)> =
             (0..20).map(|i| (file(lines + i, 2, 0, 40), 40)).collect();
         raw.push(last);
@@ -953,6 +1069,7 @@ mod tests {
             line: 200,
             lines: 12,
             arm: None,
+            worst: 0,
         });
         let p = paths(raw.len());
         let p: Vec<&str> = p.iter().map(String::as_str).collect();
@@ -960,25 +1077,22 @@ mod tests {
     }
 
     #[test]
-    fn excused_fns_past_the_bar_note_a_file_levelled_by_impl_lines() {
-        // Levelled by 2000 impl lines alone; its 45-line fn is excused and
-        // ranks below the other files' fns, so only the bar names it.
-        let s = score_with_allowed(50, (file(45, 2, 0, 2000), 2000), [45, 2, 1]);
-        assert_eq!(s[20].level, Some(Level::Noted));
-        assert_eq!(
-            s[20].why.as_deref(),
-            Some("noted: largest fn 45 lines (build) [allows too_many_lines]")
-        );
+    fn impl_lines_alone_level_nothing_even_raw() {
+        // 2000 impl lines; its 45-line fn is excused and ranks below the
+        // other files' fns: no culprit raw or effective, so not noted
+        // either.
+        let s = score_with_allowed(50, (file(45, 2, 0, 2000), 2000), [45, 2]);
+        assert_eq!((s[20].level, &s[20].why), (None, &None));
     }
 
     #[test]
     fn hot_files_keep_noted_reasons_about_other_measures() {
-        let s = score_with_allowed(10, (file(120, 41, 0, 130), 130), [120, 41, 1]);
+        let s = score_with_allowed(10, (file(120, 41, 0, 130), 130), [120, 41]);
         assert_eq!(s[20].level, Some(Level::Hot));
         assert_eq!(
             s[20].why.as_deref(),
             Some(
-                "size: 130 impl lines; complexity: cyclomatic complexity 41 (<Node<…> as Build<…>>::build); noted: largest fn 120 lines (build) [allows too_many_lines]"
+                "size: 130 impl lines; complexity: cognitive complexity 41 (<Node<…> as Build<…>>::build); noted: largest fn 120 lines (build) [allows too_many_lines]"
             )
         );
     }
@@ -991,13 +1105,14 @@ mod tests {
         // too_many_lines, so effectively its largest fn is 12 lines.
         let mut raw: Vec<(FileMetrics, usize)> =
             (0..20).map(|i| (file(10 + i, 2, 0, 40), 40)).collect();
-        raw.push((file(120, 2, 0, 130), 130));
+        // 20: a real 120-line fn, not flat (cognitive 8).
+        raw.push((file(120, 8, 0, 130), 130));
         raw.push((file(120, 2, 0, 130), 130));
         raw[21].0.excused.push(FnScore {
             name: "build".into(),
             line: 1,
-            own: [120, 2, 1],
-            effective: [stand(12), stand(2), stand(1)],
+            own: [120, 2],
+            effective: [stand(12), stand(2)],
             excuses: vec![Excuse::Allowed {
                 lint: Lint::TooManyLines,
             }],
@@ -1009,6 +1124,7 @@ mod tests {
             line: 200,
             lines: 12,
             arm: None,
+            worst: 0,
         });
         let p = paths(raw.len());
         let p: Vec<&str> = p.iter().map(String::as_str).collect();
@@ -1044,6 +1160,7 @@ mod tests {
                 name: "Op::Big".into(),
                 line: 30,
                 value,
+                worst: 9,
             })
         };
         let x = &mut raw[21].0.excused[0];
@@ -1051,9 +1168,11 @@ mod tests {
             arms: 5,
             repeat: None,
         }];
-        x.worst_arms = Some([arm(70), arm(3), arm(1)]);
+        x.worst_arms = Some([arm(70), arm(3)]);
         // Effectively the remainder (5 lines) and the counted arm.
         x.effective[0] = stand(75);
+        // Not flat: the arm (and so the fn) nests (an increment of 9).
+        raw[21].0.largest_fn.as_mut().unwrap().worst = 9;
         let s = score_excusing(&to(&raw), &to(&eff), &p);
         assert_eq!(s[21].level, Some(Level::Hot));
         assert_eq!(
@@ -1063,5 +1182,23 @@ mod tests {
         let v = serde_json::to_value(&s[21]).unwrap();
         assert_eq!(v["dims"][0]["arm"]["value"], 70);
         assert_eq!(v["dims"][0]["arm"]["line"], 30);
+
+        // A flat arm (and fn): the bad arm still blames it, but warm only.
+        for a in raw[21].0.excused[0]
+            .worst_arms
+            .as_mut()
+            .unwrap()
+            .iter_mut()
+            .flatten()
+        {
+            a.worst = 1;
+        }
+        raw[21].0.largest_fn.as_mut().unwrap().worst = 1;
+        let s = score_excusing(&to(&raw), &to(&eff), &p);
+        assert_eq!(s[21].level, Some(Level::Warm));
+        assert_eq!(
+            s[21].why.as_deref(),
+            Some("size: largest fn 75 lines (build, arm Op::Big, flat)")
+        );
     }
 }

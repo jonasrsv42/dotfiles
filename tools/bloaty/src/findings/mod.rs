@@ -148,6 +148,9 @@ pub struct Findings {
     pub excluded: BTreeMap<Criterion, usize>,
     /// Claims of name-based kinds left unmade, per kind and reason.
     pub unclaimed: BTreeMap<Kind, BTreeMap<Reason, usize>>,
+    /// Items left out because the smell score excuses them, per kind and
+    /// excuse (`table`, `dispatch`, `allowed`).
+    pub excused: BTreeMap<Kind, BTreeMap<&'static str, usize>>,
 }
 
 /// Why a name-based kind made no claim about an item it would otherwise
@@ -198,6 +201,7 @@ struct Cx<'a> {
     hidden_pub: BTreeMap<Kind, usize>,
     excluded: BTreeMap<Criterion, usize>,
     unclaimed: BTreeMap<Kind, BTreeMap<Reason, usize>>,
+    excused: BTreeMap<Kind, BTreeMap<&'static str, usize>>,
 }
 
 impl<'a> Cx<'a> {
@@ -218,6 +222,7 @@ impl<'a> Cx<'a> {
             hidden_pub: BTreeMap::new(),
             excluded: BTreeMap::new(),
             unclaimed: BTreeMap::new(),
+            excused: BTreeMap::new(),
         };
         for f in &scan.files {
             cx.add_file(f);
@@ -318,6 +323,16 @@ impl<'a> Cx<'a> {
             .or_default() += 1;
     }
 
+    /// Counts an item `kind` left out because the smell score excuses it.
+    fn excuse(&mut self, kind: Kind, excuse: &'static str) {
+        *self
+            .excused
+            .entry(kind)
+            .or_default()
+            .entry(excuse)
+            .or_default() += 1;
+    }
+
     fn focus(&self) -> impl Iterator<Item = &'a FileAnalysis> + 'a {
         self.scan.files.iter().filter(|f| f.in_focus)
     }
@@ -347,6 +362,7 @@ pub fn findings(scan: &Scan, opts: &Options) -> Findings {
         hidden_pub: cx.hidden_pub,
         excluded: cx.excluded,
         unclaimed: cx.unclaimed,
+        excused: cx.excused,
     }
 }
 
@@ -388,6 +404,9 @@ pub struct Report<'a> {
     /// Claims of the shown name-based kinds left unmade, per kind and
     /// reason (they would need name resolution or macro expansion).
     pub unclaimed: BTreeMap<Kind, &'a BTreeMap<Reason, usize>>,
+    /// Items of the shown kinds left out because the smell score excuses
+    /// them, per kind and excuse.
+    pub excused: BTreeMap<Kind, &'a BTreeMap<&'static str, usize>>,
     pub findings: Vec<&'a Finding>,
 }
 
@@ -469,7 +488,32 @@ pub fn report<'a>(
             .filter(|(k, _)| wanted(**k))
             .map(|(k, v)| (*k, v))
             .collect(),
+        excused: all
+            .excused
+            .iter()
+            .filter(|(k, _)| wanted(**k))
+            .map(|(k, v)| (*k, v))
+            .collect(),
         findings,
+    }
+}
+
+/// A line `title: 2 unused (same_name), ...` of counts by kind and
+/// reason; nothing without counts.
+fn per_kind<R: Serialize>(
+    out: &mut String,
+    title: &str,
+    counts: &BTreeMap<Kind, &BTreeMap<R, usize>>,
+) {
+    let parts: Vec<String> = counts
+        .iter()
+        .flat_map(|(k, why)| {
+            why.iter()
+                .map(move |(w, n)| format!("{n} {} ({})", json_name(k), json_name(w)))
+        })
+        .collect();
+    if !parts.is_empty() {
+        let _ = writeln!(out, "\n{title}: {}", parts.join(", "));
     }
 }
 
@@ -575,21 +619,16 @@ pub fn render(r: &Report, scan: &Scan) -> String {
             not_dup.join(", ")
         );
     }
-    let unclaimed: Vec<String> = r
-        .unclaimed
-        .iter()
-        .flat_map(|(k, why)| {
-            why.iter()
-                .map(move |(w, n)| format!("{n} {} ({})", json_name(k), json_name(w)))
-        })
-        .collect();
-    if !unclaimed.is_empty() {
-        let _ = writeln!(
-            out,
-            "\nnot claimed (would need name resolution or macro expansion): {}",
-            unclaimed.join(", ")
-        );
-    }
+    per_kind(
+        &mut out,
+        "not claimed (would need name resolution or macro expansion)",
+        &r.unclaimed,
+    );
+    per_kind(
+        &mut out,
+        "excused (as the smell score excuses them)",
+        &r.excused,
+    );
     if r.hidden_pub > 0 {
         let _ = writeln!(
             out,
@@ -711,6 +750,7 @@ mod tests {
             "hidden_pub",
             "excluded_duplicates",
             "unclaimed",
+            "excused",
             "duplicate_notes",
             "findings",
         ] {

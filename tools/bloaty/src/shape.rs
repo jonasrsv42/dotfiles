@@ -31,10 +31,10 @@ pub const MIN_ENTRIES: usize = 4;
 /// Fewer arms than this is ordinary branching, not a dispatch.
 pub const MIN_ARMS: usize = 4;
 /// A *small* arm or table entry: at most this many code lines (and an arm
-/// at most this cyclomatic complexity). Only small arms are excused; a
-/// table entry may be no bigger; and a match is a dispatch only when its
-/// middle arm (the upper median) is small: a match of medium-sized arms
-/// is a god fn, not a dispatch.
+/// at most this cognitive complexity, measured from inside the arm). Only small arms are excused; a
+/// table entry may be no bigger; and a match is a dispatch only when at
+/// least half its arms are small: a match of medium-sized arms is a god
+/// fn, not a dispatch.
 pub const SMALL_ARM_LINES: usize = 12;
 pub const SMALL_ARM_COMPLEXITY: u32 = 3;
 /// `let`s allowed before the table or match (scored as the remainder).
@@ -118,7 +118,8 @@ pub struct Arm {
 impl Arm {
     /// Small enough to be excused (`SMALL_ARM_*`), judged by its body.
     pub fn small(&self) -> bool {
-        self.body_lines <= SMALL_ARM_LINES && self.metrics.complexity <= SMALL_ARM_COMPLEXITY
+        self.body_lines <= SMALL_ARM_LINES
+            && self.metrics.cognitive_complexity <= SMALL_ARM_COMPLEXITY
     }
 }
 
@@ -227,8 +228,8 @@ pub fn shape(block: &Block) -> Option<Shape> {
 
 /// Fills in code lines (`code_lines(start, end)`), and drops tables of
 /// fewer than `MIN_ENTRIES` lines (nothing to excuse) or with an entry
-/// over `SMALL_ARM_LINES`, and dispatch shapes whose middle arm isn't
-/// small.
+/// over `SMALL_ARM_LINES`, and dispatch shapes with fewer than half their
+/// arms small.
 pub fn settle(shape: &mut Option<Shape>, code_lines: impl Fn(usize, usize) -> usize) {
     match shape {
         Some(Shape::Table(t)) => {
@@ -247,18 +248,10 @@ pub fn settle(shape: &mut Option<Shape>, code_lines: impl Fn(usize, usize) -> us
                 a.lines = code_lines(a.line, a.end_line);
                 a.body_lines = code_lines(a.body_line, a.end_line);
             }
-            let median = |mut v: Vec<usize>| {
-                v.sort_unstable();
-                v[v.len() / 2]
-            };
-            let lines = median(d.arms.iter().map(|a| a.body_lines).collect());
-            let cc = median(
-                d.arms
-                    .iter()
-                    .map(|a| a.metrics.complexity as usize)
-                    .collect(),
-            );
-            if lines > SMALL_ARM_LINES || cc > SMALL_ARM_COMPLEXITY as usize {
+            // At least half the arms small (`Arm::small`): a match of bigger
+            // arms is a long fn, not a dispatch.
+            let small = d.arms.iter().filter(|a| a.small()).count();
+            if small < d.arms.len().div_ceil(2) {
                 *shape = None;
             }
         }
@@ -768,7 +761,7 @@ mod tests {
             body_line: 1,
             body_lines,
             metrics: FnMetrics {
-                complexity,
+                cognitive_complexity: complexity,
                 ..Default::default()
             },
         };
@@ -787,7 +780,7 @@ mod tests {
             body_line: 1,
             body_lines: 0,
             metrics: FnMetrics {
-                complexity,
+                cognitive_complexity: complexity,
                 ..Default::default()
             },
         };
@@ -802,17 +795,22 @@ mod tests {
             }))
         };
         let lines = |s: usize, e: usize| e + 1 - s;
-        // The upper median arm decides: one big arm is fine...
+        // Half the arms small decides: one big arm is fine...
         let mut s = dispatch(vec![arm(3, 1), arm(12, 3), arm(4, 1), arm(90, 20)]);
         settle(&mut s, lines);
         let Some(Shape::Dispatch(d)) = &s else {
             panic!("dropped")
         };
         assert_eq!((d.lines, d.arms[3].lines), (100, 90));
-        // ...medium ones throughout aren't (by lines, or by complexity).
+        // ...so is half of them big (by lines or cognitive complexity)...
+        let mut s = dispatch(vec![arm(3, 1), arm(13, 1), arm(3, 4), arm(3, 1)]);
+        settle(&mut s, lines);
+        assert!(s.is_some());
+        // ...but not more than half (by lines, or by cognitive complexity).
         for arms in [
             vec![arm(3, 1), arm(13, 1), arm(14, 1), arm(15, 1)],
-            vec![arm(3, 1), arm(3, 4), arm(3, 4), arm(3, 1)],
+            vec![arm(3, 1), arm(3, 4), arm(3, 4), arm(3, 4)],
+            vec![arm(3, 1), arm(3, 1), arm(13, 1), arm(3, 4), arm(14, 1)],
         ] {
             let mut s = dispatch(arms);
             settle(&mut s, lines);

@@ -56,7 +56,11 @@ Kinds, in the order worth working through:
                      well-known expression macros, or whose name another
                      workspace trait shares). Fine as a mocking or plugin
                      boundary; otherwise inline.
-  long-fn            more than --long-fn own code lines (nested items excluded).
+  long-fn            more than --long-fn own code lines (nested items excluded),
+                     as the smell score counts them: a table's literal, a
+                     dispatch's small arms and a fn allowing
+                     clippy::too_many_lines (below 80 lines) are excused
+                     (counted in `excused`).
   test-heavy         files whose inline tests are >3x their code (and >= 200):
                      look for repeated setup to share and cases to merge
                      into table-driven tests.
@@ -88,7 +92,8 @@ The JSON report also has `root`, `thresholds`, `test_features`, `totals` and
 `shown` per kind (what --top kept; duplicate notes apart, in
 `duplicate_notes` {total, shown}), and per criterion how many groups of
 copies with equal text weren't duplicates after all (`excluded_duplicates`:
-`substance`).
+`substance`), and `excused` {kind: {excuse: n}}: items left out because
+the smell score excuses them (long_fn: `table`, `dispatch`, `allowed`).
 
 Limits: bloaty is syntactic. Names aren't resolved (same-named items count
 as the same) and macros aren't expanded (only format!/vec!/assert!-like

@@ -2,6 +2,7 @@
   "functions": [
     {
       "clones": 0,
+      "cognitive_complexity": 3,
       "crate": "fxapp",
       "cyclomatic_complexity": 3,
       "end_line": 16,
@@ -25,10 +26,15 @@
       "panics": 2,
       "params": 0,
       "path": "<ws>/app/examples/demo.rs",
-      "start_line": 4
+      "start_line": 4,
+      "worst_increment": {
+        "line": 6,
+        "value": 1
+      }
     },
     {
       "clones": 0,
+      "cognitive_complexity": 1,
       "crate": "fxapp",
       "cyclomatic_complexity": 2,
       "end_line": 13,
@@ -41,10 +47,15 @@
       "panics": 0,
       "params": 1,
       "path": "<ws>/app/src/dup_b.rs",
-      "start_line": 3
+      "start_line": 3,
+      "worst_increment": {
+        "line": 6,
+        "value": 1
+      }
     },
     {
       "clones": 1,
+      "cognitive_complexity": 0,
       "crate": "fxapp",
       "cyclomatic_complexity": 1,
       "end_line": 42,
@@ -61,6 +72,7 @@
     },
     {
       "clones": 0,
+      "cognitive_complexity": 4,
       "crate": "fxcore",
       "cyclomatic_complexity": 4,
       "end_line": 16,
@@ -89,19 +101,24 @@
       "panics": 3,
       "params": 0,
       "path": "<ws>/core/build.rs",
-      "start_line": 2
+      "start_line": 2,
+      "worst_increment": {
+        "line": 9,
+        "value": 2
+      }
     },
     {
       "allowed": [
         "too_many_lines"
       ],
       "clones": 0,
+      "cognitive_complexity": 0,
       "crate": "fxcore",
       "cyclomatic_complexity": 1,
-      "end_line": 53,
+      "end_line": 73,
       "file": "core/src/allowed.rs",
       "line": 12,
-      "lines": 42,
+      "lines": 62,
       "name": "report",
       "nesting": 0,
       "panic_sites": [],
@@ -112,6 +129,7 @@
     },
     {
       "clones": 0,
+      "cognitive_complexity": 22,
       "crate": "fxcore",
       "cyclomatic_complexity": 12,
       "end_line": 47,
@@ -128,37 +146,38 @@
         "arms": 4,
         "counted": {
           "arms": 1,
-          "cyclomatic_complexity": 11,
+          "cognitive_complexity": 16,
           "lines": 24
         },
         "kind": "dispatch",
         "remainder": {
+          "cognitive_complexity": 0,
           "cyclomatic_complexity": 1,
           "lines": 4,
           "nesting": 0
         },
         "worst": {
-          "cyclomatic_complexity": {
+          "cognitive_complexity": {
             "line": 22,
             "name": "Op::Rebalance",
-            "value": 11
+            "value": 16
           },
           "lines": {
             "line": 22,
             "name": "Op::Rebalance",
             "value": 24
-          },
-          "nesting": {
-            "line": 22,
-            "name": "Op::Rebalance",
-            "value": 4
           }
         }
       },
-      "start_line": 11
+      "start_line": 11,
+      "worst_increment": {
+        "line": 31,
+        "value": 5
+      }
     },
     {
       "clones": 0,
+      "cognitive_complexity": 10,
       "crate": "fxcore",
       "cyclomatic_complexity": 9,
       "end_line": 28,
@@ -171,15 +190,20 @@
       "panics": 0,
       "params": 2,
       "path": "<ws>/core/src/branchy.rs",
-      "start_line": 3
+      "start_line": 3,
+      "worst_increment": {
+        "line": 19,
+        "value": 2
+      }
     },
     {
       "clones": 0,
+      "cognitive_complexity": 0,
       "crate": "fxcore",
       "cyclomatic_complexity": 1,
-      "end_line": 22,
+      "end_line": 24,
       "file": "core/src/dispatch.rs",
-      "line": 19,
+      "line": 21,
       "lines": 4,
       "name": "announce",
       "nesting": 1,
@@ -187,16 +211,17 @@
       "panics": 0,
       "params": 2,
       "path": "<ws>/core/src/dispatch.rs",
-      "start_line": 19
+      "start_line": 21
     },
     {
       "clones": 0,
+      "cognitive_complexity": 11,
       "crate": "fxcore",
-      "cyclomatic_complexity": 6,
-      "end_line": 65,
+      "cyclomatic_complexity": 7,
+      "end_line": 85,
       "file": "core/src/dispatch.rs",
-      "line": 24,
-      "lines": 42,
+      "line": 26,
+      "lines": 60,
       "name": "run",
       "nesting": 2,
       "panic_sites": [],
@@ -204,46 +229,46 @@
       "params": 2,
       "path": "<ws>/core/src/dispatch.rs",
       "shape": {
-        "arms": 6,
+        "arms": 8,
         "counted": {
           "arms": 0,
-          "cyclomatic_complexity": 0,
+          "cognitive_complexity": 0,
           "lines": 0
         },
         "kind": "dispatch",
         "remainder": {
+          "cognitive_complexity": 0,
           "cyclomatic_complexity": 1,
           "lines": 4,
           "nesting": 0
         },
         "repeat": {
           "at": [
-            27,
-            35,
-            43,
-            52
+            29,
+            37,
+            45,
+            54
           ],
           "count": 4,
           "statements": 1
         },
-        "worst": {
-          "nesting": {
-            "line": 26,
-            "name": "Cmd::Add",
-            "value": 1
-          }
-        }
+        "worst": {}
       },
-      "start_line": 24
+      "start_line": 26,
+      "worst_increment": {
+        "line": 29,
+        "value": 2
+      }
     },
     {
       "clones": 0,
+      "cognitive_complexity": 1,
       "crate": "fxcore",
       "cyclomatic_complexity": 2,
-      "end_line": 76,
+      "end_line": 98,
       "file": "core/src/dispatch.rs",
-      "line": 67,
-      "lines": 10,
+      "line": 87,
+      "lines": 12,
       "name": "weight",
       "nesting": 1,
       "panic_sites": [],
@@ -251,30 +276,30 @@
       "params": 1,
       "path": "<ws>/core/src/dispatch.rs",
       "shape": {
-        "arms": 6,
+        "arms": 8,
         "counted": {
           "arms": 0,
-          "cyclomatic_complexity": 0,
+          "cognitive_complexity": 0,
           "lines": 0
         },
         "kind": "dispatch",
         "remainder": {
+          "cognitive_complexity": 0,
           "cyclomatic_complexity": 1,
           "lines": 4,
           "nesting": 0
         },
-        "worst": {
-          "nesting": {
-            "line": 69,
-            "name": "Cmd::Add",
-            "value": 0
-          }
-        }
+        "worst": {}
       },
-      "start_line": 67
+      "start_line": 87,
+      "worst_increment": {
+        "line": 88,
+        "value": 1
+      }
     },
     {
       "clones": 0,
+      "cognitive_complexity": 1,
       "crate": "fxcore",
       "cyclomatic_complexity": 2,
       "end_line": 13,
@@ -287,10 +312,15 @@
       "panics": 0,
       "params": 1,
       "path": "<ws>/core/src/dup_a.rs",
-      "start_line": 3
+      "start_line": 3,
+      "worst_increment": {
+        "line": 6,
+        "value": 1
+      }
     },
     {
       "clones": 0,
+      "cognitive_complexity": 0,
       "crate": "fxcore",
       "cyclomatic_complexity": 1,
       "end_line": 16,
@@ -307,6 +337,7 @@
     },
     {
       "clones": 0,
+      "cognitive_complexity": 0,
       "crate": "fxcore",
       "cyclomatic_complexity": 1,
       "end_line": 18,
@@ -323,6 +354,7 @@
     },
     {
       "clones": 0,
+      "cognitive_complexity": 0,
       "crate": "fxcore",
       "cyclomatic_complexity": 1,
       "end_line": 73,
@@ -339,6 +371,7 @@
     },
     {
       "clones": 0,
+      "cognitive_complexity": 0,
       "crate": "fxcore",
       "cyclomatic_complexity": 1,
       "end_line": 77,
@@ -355,6 +388,7 @@
     },
     {
       "clones": 0,
+      "cognitive_complexity": 2,
       "crate": "fxcore",
       "cyclomatic_complexity": 2,
       "end_line": 15,
@@ -367,10 +401,15 @@
       "panics": 0,
       "params": 1,
       "path": "<ws>/core/src/f01.rs",
-      "start_line": 3
+      "start_line": 3,
+      "worst_increment": {
+        "line": 10,
+        "value": 1
+      }
     },
     {
       "clones": 0,
+      "cognitive_complexity": 1,
       "crate": "fxcore",
       "cyclomatic_complexity": 2,
       "end_line": 15,
@@ -383,10 +422,15 @@
       "panics": 0,
       "params": 1,
       "path": "<ws>/core/src/f02.rs",
-      "start_line": 3
+      "start_line": 3,
+      "worst_increment": {
+        "line": 7,
+        "value": 1
+      }
     },
     {
       "clones": 0,
+      "cognitive_complexity": 0,
       "crate": "fxcore",
       "cyclomatic_complexity": 1,
       "end_line": 13,
@@ -403,6 +447,7 @@
     },
     {
       "clones": 0,
+      "cognitive_complexity": 1,
       "crate": "fxcore",
       "cyclomatic_complexity": 2,
       "end_line": 16,
@@ -415,10 +460,15 @@
       "panics": 0,
       "params": 1,
       "path": "<ws>/core/src/f04.rs",
-      "start_line": 3
+      "start_line": 3,
+      "worst_increment": {
+        "line": 5,
+        "value": 1
+      }
     },
     {
       "clones": 0,
+      "cognitive_complexity": 2,
       "crate": "fxcore",
       "cyclomatic_complexity": 2,
       "end_line": 14,
@@ -431,10 +481,15 @@
       "panics": 0,
       "params": 1,
       "path": "<ws>/core/src/f05.rs",
-      "start_line": 3
+      "start_line": 3,
+      "worst_increment": {
+        "line": 9,
+        "value": 1
+      }
     },
     {
       "clones": 0,
+      "cognitive_complexity": 1,
       "crate": "fxcore",
       "cyclomatic_complexity": 2,
       "end_line": 14,
@@ -447,10 +502,15 @@
       "panics": 0,
       "params": 1,
       "path": "<ws>/core/src/f06.rs",
-      "start_line": 3
+      "start_line": 3,
+      "worst_increment": {
+        "line": 7,
+        "value": 1
+      }
     },
     {
       "clones": 0,
+      "cognitive_complexity": 0,
       "crate": "fxcore",
       "cyclomatic_complexity": 1,
       "end_line": 12,
@@ -467,6 +527,7 @@
     },
     {
       "clones": 0,
+      "cognitive_complexity": 1,
       "crate": "fxcore",
       "cyclomatic_complexity": 2,
       "end_line": 15,
@@ -479,10 +540,15 @@
       "panics": 0,
       "params": 1,
       "path": "<ws>/core/src/f08.rs",
-      "start_line": 3
+      "start_line": 3,
+      "worst_increment": {
+        "line": 5,
+        "value": 1
+      }
     },
     {
       "clones": 0,
+      "cognitive_complexity": 2,
       "crate": "fxcore",
       "cyclomatic_complexity": 2,
       "end_line": 18,
@@ -495,10 +561,15 @@
       "panics": 0,
       "params": 1,
       "path": "<ws>/core/src/f09.rs",
-      "start_line": 3
+      "start_line": 3,
+      "worst_increment": {
+        "line": 13,
+        "value": 1
+      }
     },
     {
       "clones": 0,
+      "cognitive_complexity": 1,
       "crate": "fxcore",
       "cyclomatic_complexity": 2,
       "end_line": 13,
@@ -511,10 +582,15 @@
       "panics": 0,
       "params": 1,
       "path": "<ws>/core/src/f10.rs",
-      "start_line": 3
+      "start_line": 3,
+      "worst_increment": {
+        "line": 7,
+        "value": 1
+      }
     },
     {
       "clones": 0,
+      "cognitive_complexity": 0,
       "crate": "fxcore",
       "cyclomatic_complexity": 1,
       "end_line": 11,
@@ -531,6 +607,7 @@
     },
     {
       "clones": 0,
+      "cognitive_complexity": 1,
       "crate": "fxcore",
       "cyclomatic_complexity": 2,
       "end_line": 14,
@@ -543,10 +620,15 @@
       "panics": 0,
       "params": 1,
       "path": "<ws>/core/src/f12.rs",
-      "start_line": 3
+      "start_line": 3,
+      "worst_increment": {
+        "line": 5,
+        "value": 1
+      }
     },
     {
       "clones": 0,
+      "cognitive_complexity": 2,
       "crate": "fxcore",
       "cyclomatic_complexity": 2,
       "end_line": 17,
@@ -559,10 +641,15 @@
       "panics": 0,
       "params": 1,
       "path": "<ws>/core/src/f13.rs",
-      "start_line": 3
+      "start_line": 3,
+      "worst_increment": {
+        "line": 12,
+        "value": 1
+      }
     },
     {
       "clones": 0,
+      "cognitive_complexity": 1,
       "crate": "fxcore",
       "cyclomatic_complexity": 2,
       "end_line": 17,
@@ -575,10 +662,15 @@
       "panics": 0,
       "params": 1,
       "path": "<ws>/core/src/f14.rs",
-      "start_line": 3
+      "start_line": 3,
+      "worst_increment": {
+        "line": 7,
+        "value": 1
+      }
     },
     {
       "clones": 0,
+      "cognitive_complexity": 0,
       "crate": "fxcore",
       "cyclomatic_complexity": 1,
       "end_line": 10,
@@ -595,6 +687,7 @@
     },
     {
       "clones": 0,
+      "cognitive_complexity": 1,
       "crate": "fxcore",
       "cyclomatic_complexity": 2,
       "end_line": 13,
@@ -607,10 +700,15 @@
       "panics": 0,
       "params": 1,
       "path": "<ws>/core/src/f16.rs",
-      "start_line": 3
+      "start_line": 3,
+      "worst_increment": {
+        "line": 5,
+        "value": 1
+      }
     },
     {
       "clones": 0,
+      "cognitive_complexity": 2,
       "crate": "fxcore",
       "cyclomatic_complexity": 2,
       "end_line": 16,
@@ -623,10 +721,15 @@
       "panics": 0,
       "params": 1,
       "path": "<ws>/core/src/f17.rs",
-      "start_line": 3
+      "start_line": 3,
+      "worst_increment": {
+        "line": 11,
+        "value": 1
+      }
     },
     {
       "clones": 0,
+      "cognitive_complexity": 1,
       "crate": "fxcore",
       "cyclomatic_complexity": 2,
       "end_line": 16,
@@ -639,10 +742,15 @@
       "panics": 0,
       "params": 1,
       "path": "<ws>/core/src/f18.rs",
-      "start_line": 3
+      "start_line": 3,
+      "worst_increment": {
+        "line": 7,
+        "value": 1
+      }
     },
     {
       "clones": 0,
+      "cognitive_complexity": 0,
       "crate": "fxcore",
       "cyclomatic_complexity": 1,
       "end_line": 14,
@@ -659,6 +767,7 @@
     },
     {
       "clones": 0,
+      "cognitive_complexity": 1,
       "crate": "fxcore",
       "cyclomatic_complexity": 2,
       "end_line": 12,
@@ -671,10 +780,15 @@
       "panics": 0,
       "params": 1,
       "path": "<ws>/core/src/f20.rs",
-      "start_line": 3
+      "start_line": 3,
+      "worst_increment": {
+        "line": 5,
+        "value": 1
+      }
     },
     {
       "clones": 0,
+      "cognitive_complexity": 0,
       "crate": "fxcore",
       "cyclomatic_complexity": 1,
       "end_line": 16,
@@ -691,6 +805,7 @@
     },
     {
       "clones": 0,
+      "cognitive_complexity": 1,
       "crate": "fxcore",
       "cyclomatic_complexity": 2,
       "end_line": 24,
@@ -714,10 +829,15 @@
       "panics": 2,
       "params": 2,
       "path": "<ws>/core/src/fragile.rs",
-      "start_line": 18
+      "start_line": 18,
+      "worst_increment": {
+        "line": 20,
+        "value": 1
+      }
     },
     {
       "clones": 0,
+      "cognitive_complexity": 0,
       "crate": "fxcore",
       "cyclomatic_complexity": 1,
       "end_line": 28,
@@ -740,6 +860,7 @@
     },
     {
       "clones": 0,
+      "cognitive_complexity": 0,
       "crate": "fxcore",
       "cyclomatic_complexity": 1,
       "end_line": 33,
@@ -767,6 +888,7 @@
     },
     {
       "clones": 0,
+      "cognitive_complexity": 0,
       "crate": "fxcore",
       "cyclomatic_complexity": 1,
       "end_line": 39,
@@ -794,6 +916,7 @@
     },
     {
       "clones": 0,
+      "cognitive_complexity": 0,
       "crate": "fxcore",
       "cyclomatic_complexity": 1,
       "end_line": 43,
@@ -810,6 +933,7 @@
     },
     {
       "clones": 0,
+      "cognitive_complexity": 61,
       "crate": "fxcore",
       "cyclomatic_complexity": 25,
       "end_line": 81,
@@ -822,10 +946,15 @@
       "panics": 0,
       "params": 2,
       "path": "<ws>/core/src/hot.rs",
-      "start_line": 10
+      "start_line": 10,
+      "worst_increment": {
+        "line": 54,
+        "value": 7
+      }
     },
     {
       "clones": 0,
+      "cognitive_complexity": 0,
       "crate": "fxcore",
       "cyclomatic_complexity": 1,
       "end_line": 85,
@@ -842,6 +971,7 @@
     },
     {
       "clones": 0,
+      "cognitive_complexity": 0,
       "crate": "fxcore",
       "cyclomatic_complexity": 1,
       "end_line": 69,
@@ -858,6 +988,7 @@
     },
     {
       "clones": 1,
+      "cognitive_complexity": 2,
       "crate": "fxcore",
       "cyclomatic_complexity": 2,
       "end_line": 46,
@@ -870,10 +1001,15 @@
       "panics": 0,
       "params": 1,
       "path": "<ws>/core/src/long.rs",
-      "start_line": 11
+      "start_line": 11,
+      "worst_increment": {
+        "line": 27,
+        "value": 1
+      }
     },
     {
       "clones": 0,
+      "cognitive_complexity": 0,
       "crate": "fxcore",
       "cyclomatic_complexity": 1,
       "end_line": 12,
@@ -890,12 +1026,13 @@
     },
     {
       "clones": 0,
+      "cognitive_complexity": 0,
       "crate": "fxcore",
       "cyclomatic_complexity": 1,
-      "end_line": 56,
+      "end_line": 74,
       "file": "core/src/routes.rs",
       "line": 14,
-      "lines": 43,
+      "lines": 61,
       "name": "routes",
       "nesting": 0,
       "panic_sites": [],
@@ -903,19 +1040,20 @@
       "params": 0,
       "path": "<ws>/core/src/routes.rs",
       "shape": {
-        "entries": 19,
+        "entries": 37,
         "kind": "table",
-        "lines": 41
+        "lines": 59
       },
       "start_line": 14
     },
     {
       "clones": 0,
+      "cognitive_complexity": 0,
       "crate": "fxcore",
       "cyclomatic_complexity": 1,
-      "end_line": 61,
+      "end_line": 79,
       "file": "core/src/routes.rs",
-      "line": 59,
+      "line": 77,
       "lines": 3,
       "name": "Route::new",
       "nesting": 0,
@@ -923,10 +1061,11 @@
       "panics": 0,
       "params": 4,
       "path": "<ws>/core/src/routes.rs",
-      "start_line": 59
+      "start_line": 77
     },
     {
       "clones": 0,
+      "cognitive_complexity": 0,
       "crate": "fxcore",
       "cyclomatic_complexity": 1,
       "end_line": 7,
@@ -943,6 +1082,7 @@
     },
     {
       "clones": 0,
+      "cognitive_complexity": 0,
       "crate": "fxcore",
       "cyclomatic_complexity": 1,
       "end_line": 15,
@@ -959,6 +1099,7 @@
     },
     {
       "clones": 0,
+      "cognitive_complexity": 3,
       "crate": "fxcore",
       "cyclomatic_complexity": 3,
       "end_line": 26,
@@ -971,10 +1112,15 @@
       "panics": 0,
       "params": 1,
       "path": "<ws>/core/src/shapes.rs",
-      "start_line": 18
+      "start_line": 18,
+      "worst_increment": {
+        "line": 21,
+        "value": 2
+      }
     },
     {
       "clones": 0,
+      "cognitive_complexity": 0,
       "crate": "fxcore",
       "cyclomatic_complexity": 1,
       "end_line": 30,
@@ -991,6 +1137,7 @@
     },
     {
       "clones": 1,
+      "cognitive_complexity": 0,
       "crate": "fxcore",
       "cyclomatic_complexity": 1,
       "end_line": 7,
@@ -1007,5 +1154,5 @@
     }
   ],
   "root": "<ws>",
-  "schema": 7
+  "schema": 11
 }

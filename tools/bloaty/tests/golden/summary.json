@@ -3,6 +3,92 @@
   "depth": 2,
   "groups": [
     {
+      "blank": 5,
+      "clones": 0,
+      "comment": 0,
+      "crate": "fxcore",
+      "doc": 3,
+      "files": 1,
+      "impl": 90,
+      "largest_fn": {
+        "line": 26,
+        "lines": 60,
+        "name": "run"
+      },
+      "max_cognitive_complexity": {
+        "line": 26,
+        "name": "run",
+        "value": 11
+      },
+      "max_cyclomatic_complexity": {
+        "line": 26,
+        "name": "run",
+        "value": 7
+      },
+      "max_nesting": {
+        "line": 26,
+        "name": "run",
+        "value": 2
+      },
+      "name": "core/src/dispatch.rs",
+      "panic_density": 0.0,
+      "panics": 0,
+      "path": "<ws>/core/src/dispatch.rs",
+      "smell": {
+        "complexity": 0.45,
+        "dims": [
+          {
+            "dim": "size",
+            "excused": {
+              "arms": 8,
+              "kind": "dispatch",
+              "repeat": {
+                "at": [
+                  29,
+                  37,
+                  45,
+                  54
+                ],
+                "count": 4,
+                "statements": 1
+              }
+            },
+            "line": 26,
+            "metric": "largest_fn",
+            "name": "run",
+            "value": 60
+          },
+          {
+            "dim": "complexity",
+            "excused": {
+              "arms": 8,
+              "kind": "dispatch",
+              "repeat": {
+                "at": [
+                  29,
+                  37,
+                  45,
+                  54
+                ],
+                "count": 4,
+                "statements": 1
+              }
+            },
+            "line": 26,
+            "metric": "cognitive_complexity",
+            "name": "run",
+            "value": 11
+          }
+        ],
+        "fragility": 0.0,
+        "front": 2,
+        "level": "noted",
+        "size": 1.0,
+        "why": "noted: largest fn 60 lines (run) [dispatch, 8 arms], cognitive complexity 11 (run) [dispatch, 8 arms]"
+      },
+      "test": 0
+    },
+    {
       "blank": 3,
       "clones": 0,
       "comment": 0,
@@ -14,6 +100,11 @@
         "line": 11,
         "lines": 71,
         "name": "plan"
+      },
+      "max_cognitive_complexity": {
+        "line": 11,
+        "name": "plan",
+        "value": 61
       },
       "max_cyclomatic_complexity": {
         "line": 11,
@@ -49,105 +140,16 @@
             "culprit": true,
             "dim": "complexity",
             "line": 11,
-            "metric": "cyclomatic_complexity",
+            "metric": "cognitive_complexity",
             "name": "plan",
-            "value": 25
-          },
-          {
-            "culprit": true,
-            "dim": "complexity",
-            "line": 11,
-            "metric": "nesting",
-            "name": "plan",
-            "value": 7
+            "value": 61
           }
         ],
         "fragility": 0.0,
         "front": 1,
         "level": "hot",
         "size": 1.0,
-        "why": "size: largest fn 71 lines (plan), 80 impl lines; complexity: cyclomatic complexity 25 (plan), nesting 7 (plan)"
-      },
-      "test": 0
-    },
-    {
-      "blank": 5,
-      "clones": 0,
-      "comment": 0,
-      "crate": "fxcore",
-      "doc": 3,
-      "files": 1,
-      "impl": 68,
-      "largest_fn": {
-        "line": 24,
-        "lines": 42,
-        "name": "run"
-      },
-      "max_cyclomatic_complexity": {
-        "line": 24,
-        "name": "run",
-        "value": 6
-      },
-      "max_nesting": {
-        "line": 24,
-        "name": "run",
-        "value": 2
-      },
-      "name": "core/src/dispatch.rs",
-      "panic_density": 0.0,
-      "panics": 0,
-      "path": "<ws>/core/src/dispatch.rs",
-      "smell": {
-        "complexity": 0.55,
-        "dims": [
-          {
-            "dim": "size",
-            "excused": {
-              "arms": 6,
-              "kind": "dispatch",
-              "repeat": {
-                "at": [
-                  27,
-                  35,
-                  43,
-                  52
-                ],
-                "count": 4,
-                "statements": 1
-              }
-            },
-            "line": 24,
-            "metric": "largest_fn",
-            "name": "run",
-            "value": 42
-          },
-          {
-            "dim": "complexity",
-            "excused": {
-              "arms": 6,
-              "kind": "dispatch",
-              "repeat": {
-                "at": [
-                  27,
-                  35,
-                  43,
-                  52
-                ],
-                "count": 4,
-                "statements": 1
-              }
-            },
-            "line": 24,
-            "metric": "cyclomatic_complexity",
-            "name": "run",
-            "value": 6
-          }
-        ],
-        "fragility": 0.0,
-        "front": 2,
-        "level": "noted",
-        "size": 0.97,
-        "why": "noted: largest fn 42 lines (run) [dispatch, 6 arms], cyclomatic complexity 6 (run) [dispatch, 6 arms]"
+        "why": "size: largest fn 71 lines (plan), 80 impl lines; complexity: cognitive complexity 61 (plan)"
       },
       "test": 0
     },
@@ -158,11 +160,16 @@
       "crate": "fxcore",
       "doc": 1,
       "files": 1,
-      "impl": 57,
+      "impl": 75,
       "largest_fn": {
         "line": 14,
-        "lines": 43,
+        "lines": 61,
         "name": "routes"
+      },
+      "max_cognitive_complexity": {
+        "line": 10,
+        "name": "echo",
+        "value": 0
       },
       "max_cyclomatic_complexity": {
         "line": 10,
@@ -179,63 +186,27 @@
       "panics": 0,
       "path": "<ws>/core/src/routes.rs",
       "smell": {
-        "complexity": 0.1,
+        "complexity": 0.0,
         "dims": [
           {
             "dim": "size",
             "excused": {
-              "entries": 19,
+              "entries": 37,
               "kind": "table"
             },
             "line": 14,
             "metric": "largest_fn",
             "name": "routes",
-            "value": 43
+            "value": 61
           }
         ],
         "fragility": 0.0,
         "front": 3,
         "level": "noted",
         "size": 0.93,
-        "why": "noted: largest fn 43 lines (routes) [table, 19 entries]"
+        "why": "noted: largest fn 61 lines (routes) [table, 37 entries]"
       },
       "test": 0
-    },
-    {
-      "blank": 5,
-      "clones": 0,
-      "comment": 3,
-      "crate": "fxcore",
-      "doc": 2,
-      "files": 1,
-      "impl": 55,
-      "largest_fn": {
-        "line": 46,
-        "lines": 24,
-        "name": "run_all"
-      },
-      "max_cyclomatic_complexity": {
-        "line": 46,
-        "name": "run_all",
-        "value": 1
-      },
-      "max_nesting": {
-        "line": 46,
-        "name": "run_all",
-        "value": 0
-      },
-      "name": "core/src/lib.rs",
-      "panic_density": 0.0,
-      "panics": 0,
-      "path": "<ws>/core/src/lib.rs",
-      "smell": {
-        "complexity": 0.1,
-        "fragility": 0.0,
-        "front": 4,
-        "level": null,
-        "size": 0.9
-      },
-      "test": 19
     },
     {
       "blank": 2,
@@ -244,11 +215,16 @@
       "crate": "fxcore",
       "doc": 2,
       "files": 1,
-      "impl": 49,
+      "impl": 69,
       "largest_fn": {
         "line": 12,
-        "lines": 42,
+        "lines": 62,
         "name": "report"
+      },
+      "max_cognitive_complexity": {
+        "line": 12,
+        "name": "report",
+        "value": 0
       },
       "max_cyclomatic_complexity": {
         "line": 12,
@@ -265,7 +241,7 @@
       "panics": 0,
       "path": "<ws>/core/src/allowed.rs",
       "smell": {
-        "complexity": 0.1,
+        "complexity": 0.0,
         "dims": [
           {
             "dim": "size",
@@ -276,16 +252,57 @@
             "line": 12,
             "metric": "largest_fn",
             "name": "report",
-            "value": 42
+            "value": 62
           }
         ],
         "fragility": 0.0,
-        "front": 5,
+        "front": 4,
         "level": "noted",
-        "size": 0.87,
-        "why": "noted: largest fn 42 lines (report) [allows too_many_lines]"
+        "size": 0.9,
+        "why": "noted: largest fn 62 lines (report) [allows too_many_lines]"
       },
       "test": 0
+    },
+    {
+      "blank": 5,
+      "clones": 0,
+      "comment": 3,
+      "crate": "fxcore",
+      "doc": 2,
+      "files": 1,
+      "impl": 55,
+      "largest_fn": {
+        "line": 46,
+        "lines": 24,
+        "name": "run_all"
+      },
+      "max_cognitive_complexity": {
+        "line": 46,
+        "name": "run_all",
+        "value": 0
+      },
+      "max_cyclomatic_complexity": {
+        "line": 46,
+        "name": "run_all",
+        "value": 1
+      },
+      "max_nesting": {
+        "line": 46,
+        "name": "run_all",
+        "value": 0
+      },
+      "name": "core/src/lib.rs",
+      "panic_density": 0.0,
+      "panics": 0,
+      "path": "<ws>/core/src/lib.rs",
+      "smell": {
+        "complexity": 0.0,
+        "fragility": 0.0,
+        "front": 5,
+        "level": null,
+        "size": 0.87
+      },
+      "test": 19
     },
     {
       "blank": 2,
@@ -299,6 +316,11 @@
         "line": 11,
         "lines": 37,
         "name": "apply"
+      },
+      "max_cognitive_complexity": {
+        "line": 11,
+        "name": "apply",
+        "value": 22
       },
       "max_cyclomatic_complexity": {
         "line": 11,
@@ -338,34 +360,21 @@
             "arm": {
               "line": 22,
               "name": "Op::Rebalance",
-              "value": 11
+              "value": 16
             },
             "culprit": true,
             "dim": "complexity",
             "line": 11,
-            "metric": "cyclomatic_complexity",
+            "metric": "cognitive_complexity",
             "name": "apply",
-            "value": 12
-          },
-          {
-            "arm": {
-              "line": 22,
-              "name": "Op::Rebalance",
-              "value": 4
-            },
-            "culprit": true,
-            "dim": "complexity",
-            "line": 11,
-            "metric": "nesting",
-            "name": "apply",
-            "value": 4
+            "value": 17
           }
         ],
         "fragility": 0.0,
         "front": 2,
         "level": "warm",
         "size": 0.9,
-        "why": "size: largest fn 28 lines (apply, arm Op::Rebalance), 43 impl lines; complexity: cyclomatic complexity 12 (apply, arm Op::Rebalance), nesting 4 (apply, arm Op::Rebalance)"
+        "why": "size: largest fn 28 lines (apply, arm Op::Rebalance), 43 impl lines; complexity: cognitive complexity 17 (apply, arm Op::Rebalance)"
       },
       "test": 0
     },
@@ -382,6 +391,11 @@
         "lines": 36,
         "name": "describe"
       },
+      "max_cognitive_complexity": {
+        "line": 11,
+        "name": "describe",
+        "value": 2
+      },
       "max_cyclomatic_complexity": {
         "line": 11,
         "name": "describe",
@@ -397,7 +411,7 @@
       "panics": 0,
       "path": "<ws>/core/src/long.rs",
       "smell": {
-        "complexity": 0.55,
+        "complexity": 0.78,
         "fragility": 0.0,
         "front": 2,
         "level": null,
@@ -418,6 +432,11 @@
         "lines": 32,
         "name": "main"
       },
+      "max_cognitive_complexity": {
+        "line": 11,
+        "name": "main",
+        "value": 0
+      },
       "max_cyclomatic_complexity": {
         "line": 11,
         "name": "main",
@@ -433,7 +452,7 @@
       "panics": 0,
       "path": "<ws>/app/src/main.rs",
       "smell": {
-        "complexity": 0.1,
+        "complexity": 0.0,
         "fragility": 0.0,
         "front": 3,
         "level": null,
@@ -453,6 +472,11 @@
         "line": 18,
         "lines": 7,
         "name": "Registry::add"
+      },
+      "max_cognitive_complexity": {
+        "line": 18,
+        "name": "Registry::add",
+        "value": 1
       },
       "max_cyclomatic_complexity": {
         "line": 18,
@@ -486,9 +510,10 @@
       "panics": 7,
       "path": "<ws>/core/src/fragile.rs",
       "smell": {
-        "complexity": 0.55,
+        "complexity": 0.45,
         "dims": [
           {
+            "culprit": true,
             "dim": "fragility",
             "metric": "panic_density",
             "panics": 7,
@@ -515,6 +540,11 @@
         "line": 3,
         "lines": 26,
         "name": "classify"
+      },
+      "max_cognitive_complexity": {
+        "line": 3,
+        "name": "classify",
+        "value": 10
       },
       "max_cyclomatic_complexity": {
         "line": 3,
@@ -551,6 +581,11 @@
         "lines": 9,
         "name": "largest"
       },
+      "max_cognitive_complexity": {
+        "line": 18,
+        "name": "largest",
+        "value": 3
+      },
       "max_cyclomatic_complexity": {
         "line": 18,
         "name": "largest",
@@ -586,6 +621,11 @@
         "lines": 11,
         "name": "checksum"
       },
+      "max_cognitive_complexity": {
+        "line": 3,
+        "name": "checksum",
+        "value": 1
+      },
       "max_cyclomatic_complexity": {
         "line": 3,
         "name": "checksum",
@@ -600,9 +640,9 @@
       "panics": 0,
       "path": "<ws>/core/src/dup_a.rs",
       "smell": {
-        "complexity": 0.55,
+        "complexity": 0.45,
         "fragility": 0.0,
-        "front": 7,
+        "front": 8,
         "level": null,
         "size": 0.63
       },
@@ -621,6 +661,11 @@
         "lines": 16,
         "name": "f9"
       },
+      "max_cognitive_complexity": {
+        "line": 3,
+        "name": "f9",
+        "value": 2
+      },
       "max_cyclomatic_complexity": {
         "line": 3,
         "name": "f9",
@@ -635,7 +680,7 @@
       "panics": 0,
       "path": "<ws>/core/src/f09.rs",
       "smell": {
-        "complexity": 0.55,
+        "complexity": 0.78,
         "fragility": 0.0,
         "front": 4,
         "level": null,
@@ -655,6 +700,11 @@
         "line": 2,
         "lines": 15,
         "name": "main"
+      },
+      "max_cognitive_complexity": {
+        "line": 2,
+        "name": "main",
+        "value": 4
       },
       "max_cyclomatic_complexity": {
         "line": 2,
@@ -706,6 +756,11 @@
         "lines": 15,
         "name": "f13"
       },
+      "max_cognitive_complexity": {
+        "line": 3,
+        "name": "f13",
+        "value": 2
+      },
       "max_cyclomatic_complexity": {
         "line": 3,
         "name": "f13",
@@ -720,7 +775,7 @@
       "panics": 0,
       "path": "<ws>/core/src/f13.rs",
       "smell": {
-        "complexity": 0.55,
+        "complexity": 0.78,
         "fragility": 0.0,
         "front": 5,
         "level": null,
@@ -741,6 +796,11 @@
         "lines": 15,
         "name": "f14"
       },
+      "max_cognitive_complexity": {
+        "line": 3,
+        "name": "f14",
+        "value": 1
+      },
       "max_cyclomatic_complexity": {
         "line": 3,
         "name": "f14",
@@ -755,9 +815,9 @@
       "panics": 0,
       "path": "<ws>/core/src/f14.rs",
       "smell": {
-        "complexity": 0.55,
+        "complexity": 0.45,
         "fragility": 0.0,
-        "front": 5,
+        "front": 6,
         "level": null,
         "size": 0.74
       },
@@ -775,6 +835,11 @@
         "line": 4,
         "lines": 13,
         "name": "main"
+      },
+      "max_cognitive_complexity": {
+        "line": 4,
+        "name": "main",
+        "value": 3
       },
       "max_cyclomatic_complexity": {
         "line": 4,
@@ -821,6 +886,11 @@
         "lines": 14,
         "name": "f4"
       },
+      "max_cognitive_complexity": {
+        "line": 3,
+        "name": "f4",
+        "value": 1
+      },
       "max_cyclomatic_complexity": {
         "line": 3,
         "name": "f4",
@@ -835,9 +905,9 @@
       "panics": 0,
       "path": "<ws>/core/src/f04.rs",
       "smell": {
-        "complexity": 0.55,
+        "complexity": 0.45,
         "fragility": 0.0,
-        "front": 6,
+        "front": 7,
         "level": null,
         "size": 0.66
       },
@@ -856,6 +926,11 @@
         "lines": 14,
         "name": "f17"
       },
+      "max_cognitive_complexity": {
+        "line": 3,
+        "name": "f17",
+        "value": 2
+      },
       "max_cyclomatic_complexity": {
         "line": 3,
         "name": "f17",
@@ -870,7 +945,7 @@
       "panics": 0,
       "path": "<ws>/core/src/f17.rs",
       "smell": {
-        "complexity": 0.55,
+        "complexity": 0.78,
         "fragility": 0.0,
         "front": 6,
         "level": null,
@@ -891,6 +966,11 @@
         "lines": 14,
         "name": "f18"
       },
+      "max_cognitive_complexity": {
+        "line": 3,
+        "name": "f18",
+        "value": 1
+      },
       "max_cyclomatic_complexity": {
         "line": 3,
         "name": "f18",
@@ -905,9 +985,9 @@
       "panics": 0,
       "path": "<ws>/core/src/f18.rs",
       "smell": {
-        "complexity": 0.55,
+        "complexity": 0.45,
         "fragility": 0.0,
-        "front": 6,
+        "front": 7,
         "level": null,
         "size": 0.66
       },
@@ -926,6 +1006,11 @@
         "lines": 13,
         "name": "f1"
       },
+      "max_cognitive_complexity": {
+        "line": 3,
+        "name": "f1",
+        "value": 2
+      },
       "max_cyclomatic_complexity": {
         "line": 3,
         "name": "f1",
@@ -940,9 +1025,9 @@
       "panics": 0,
       "path": "<ws>/core/src/f01.rs",
       "smell": {
-        "complexity": 0.55,
+        "complexity": 0.78,
         "fragility": 0.0,
-        "front": 8,
+        "front": 7,
         "level": null,
         "size": 0.55
       },
@@ -961,6 +1046,11 @@
         "lines": 13,
         "name": "f2"
       },
+      "max_cognitive_complexity": {
+        "line": 3,
+        "name": "f2",
+        "value": 1
+      },
       "max_cyclomatic_complexity": {
         "line": 3,
         "name": "f2",
@@ -975,9 +1065,9 @@
       "panics": 0,
       "path": "<ws>/core/src/f02.rs",
       "smell": {
-        "complexity": 0.55,
+        "complexity": 0.45,
         "fragility": 0.0,
-        "front": 8,
+        "front": 9,
         "level": null,
         "size": 0.55
       },
@@ -996,6 +1086,11 @@
         "lines": 13,
         "name": "f8"
       },
+      "max_cognitive_complexity": {
+        "line": 3,
+        "name": "f8",
+        "value": 1
+      },
       "max_cyclomatic_complexity": {
         "line": 3,
         "name": "f8",
@@ -1010,9 +1105,9 @@
       "panics": 0,
       "path": "<ws>/core/src/f08.rs",
       "smell": {
-        "complexity": 0.55,
+        "complexity": 0.45,
         "fragility": 0.0,
-        "front": 8,
+        "front": 9,
         "level": null,
         "size": 0.55
       },
@@ -1031,6 +1126,11 @@
         "lines": 12,
         "name": "f5"
       },
+      "max_cognitive_complexity": {
+        "line": 3,
+        "name": "f5",
+        "value": 2
+      },
       "max_cyclomatic_complexity": {
         "line": 3,
         "name": "f5",
@@ -1045,9 +1145,9 @@
       "panics": 0,
       "path": "<ws>/core/src/f05.rs",
       "smell": {
-        "complexity": 0.55,
+        "complexity": 0.78,
         "fragility": 0.0,
-        "front": 9,
+        "front": 8,
         "level": null,
         "size": 0.43
       },
@@ -1066,6 +1166,11 @@
         "lines": 12,
         "name": "f6"
       },
+      "max_cognitive_complexity": {
+        "line": 3,
+        "name": "f6",
+        "value": 1
+      },
       "max_cyclomatic_complexity": {
         "line": 3,
         "name": "f6",
@@ -1080,9 +1185,9 @@
       "panics": 0,
       "path": "<ws>/core/src/f06.rs",
       "smell": {
-        "complexity": 0.55,
+        "complexity": 0.45,
         "fragility": 0.0,
-        "front": 9,
+        "front": 10,
         "level": null,
         "size": 0.43
       },
@@ -1101,6 +1206,11 @@
         "lines": 12,
         "name": "f12"
       },
+      "max_cognitive_complexity": {
+        "line": 3,
+        "name": "f12",
+        "value": 1
+      },
       "max_cyclomatic_complexity": {
         "line": 3,
         "name": "f12",
@@ -1115,9 +1225,9 @@
       "panics": 0,
       "path": "<ws>/core/src/f12.rs",
       "smell": {
-        "complexity": 0.55,
+        "complexity": 0.45,
         "fragility": 0.0,
-        "front": 9,
+        "front": 10,
         "level": null,
         "size": 0.43
       },
@@ -1136,6 +1246,11 @@
         "lines": 12,
         "name": "f19"
       },
+      "max_cognitive_complexity": {
+        "line": 3,
+        "name": "f19",
+        "value": 0
+      },
       "max_cyclomatic_complexity": {
         "line": 3,
         "name": "f19",
@@ -1150,9 +1265,9 @@
       "panics": 0,
       "path": "<ws>/core/src/f19.rs",
       "smell": {
-        "complexity": 0.1,
+        "complexity": 0.0,
         "fragility": 0.0,
-        "front": 10,
+        "front": 11,
         "level": null,
         "size": 0.43
       },
@@ -1171,6 +1286,11 @@
         "lines": 11,
         "name": "adler"
       },
+      "max_cognitive_complexity": {
+        "line": 3,
+        "name": "adler",
+        "value": 1
+      },
       "max_cyclomatic_complexity": {
         "line": 3,
         "name": "adler",
@@ -1185,9 +1305,9 @@
       "panics": 0,
       "path": "<ws>/app/src/dup_b.rs",
       "smell": {
-        "complexity": 0.55,
+        "complexity": 0.45,
         "fragility": 0.0,
-        "front": 10,
+        "front": 11,
         "level": null,
         "size": 0.28
       },
@@ -1206,6 +1326,11 @@
         "lines": 11,
         "name": "f3"
       },
+      "max_cognitive_complexity": {
+        "line": 3,
+        "name": "f3",
+        "value": 0
+      },
       "max_cyclomatic_complexity": {
         "line": 3,
         "name": "f3",
@@ -1220,9 +1345,9 @@
       "panics": 0,
       "path": "<ws>/core/src/f03.rs",
       "smell": {
-        "complexity": 0.1,
+        "complexity": 0.0,
         "fragility": 0.0,
-        "front": 11,
+        "front": 12,
         "level": null,
         "size": 0.28
       },
@@ -1241,6 +1366,11 @@
         "lines": 11,
         "name": "f10"
       },
+      "max_cognitive_complexity": {
+        "line": 3,
+        "name": "f10",
+        "value": 1
+      },
       "max_cyclomatic_complexity": {
         "line": 3,
         "name": "f10",
@@ -1255,9 +1385,9 @@
       "panics": 0,
       "path": "<ws>/core/src/f10.rs",
       "smell": {
-        "complexity": 0.55,
+        "complexity": 0.45,
         "fragility": 0.0,
-        "front": 10,
+        "front": 11,
         "level": null,
         "size": 0.28
       },
@@ -1276,6 +1406,11 @@
         "lines": 11,
         "name": "f16"
       },
+      "max_cognitive_complexity": {
+        "line": 3,
+        "name": "f16",
+        "value": 1
+      },
       "max_cyclomatic_complexity": {
         "line": 3,
         "name": "f16",
@@ -1290,9 +1425,9 @@
       "panics": 0,
       "path": "<ws>/core/src/f16.rs",
       "smell": {
-        "complexity": 0.55,
+        "complexity": 0.45,
         "fragility": 0.0,
-        "front": 10,
+        "front": 11,
         "level": null,
         "size": 0.28
       },
@@ -1311,6 +1446,11 @@
         "lines": 10,
         "name": "f7"
       },
+      "max_cognitive_complexity": {
+        "line": 3,
+        "name": "f7",
+        "value": 0
+      },
       "max_cyclomatic_complexity": {
         "line": 3,
         "name": "f7",
@@ -1325,9 +1465,9 @@
       "panics": 0,
       "path": "<ws>/core/src/f07.rs",
       "smell": {
-        "complexity": 0.1,
+        "complexity": 0.0,
         "fragility": 0.0,
-        "front": 12,
+        "front": 13,
         "level": null,
         "size": 0.16
       },
@@ -1346,6 +1486,11 @@
         "lines": 10,
         "name": "f20"
       },
+      "max_cognitive_complexity": {
+        "line": 3,
+        "name": "f20",
+        "value": 1
+      },
       "max_cyclomatic_complexity": {
         "line": 3,
         "name": "f20",
@@ -1360,9 +1505,9 @@
       "panics": 0,
       "path": "<ws>/core/src/f20.rs",
       "smell": {
-        "complexity": 0.55,
+        "complexity": 0.45,
         "fragility": 0.0,
-        "front": 11,
+        "front": 12,
         "level": null,
         "size": 0.16
       },
@@ -1380,6 +1525,11 @@
         "line": 3,
         "lines": 9,
         "name": "f11"
+      },
+      "max_cognitive_complexity": {
+        "line": 3,
+        "name": "f11",
+        "value": 0
       },
       "max_cyclomatic_complexity": {
         "line": 3,
@@ -1409,6 +1559,11 @@
         "lines": 8,
         "name": "f15"
       },
+      "max_cognitive_complexity": {
+        "line": 3,
+        "name": "f15",
+        "value": 0
+      },
       "max_cyclomatic_complexity": {
         "line": 3,
         "name": "f15",
@@ -1436,6 +1591,11 @@
         "line": 3,
         "lines": 5,
         "name": "label"
+      },
+      "max_cognitive_complexity": {
+        "line": 3,
+        "name": "label",
+        "value": 0
       },
       "max_cyclomatic_complexity": {
         "line": 3,
@@ -1488,7 +1648,7 @@
   ],
   "hidden": 0,
   "root": "<ws>",
-  "schema": 7,
+  "schema": 11,
   "sort": "impl",
   "test_features": [],
   "total": {
@@ -1496,7 +1656,7 @@
     "comment": 9,
     "doc": 43,
     "files": 39,
-    "impl": 829,
+    "impl": 889,
     "name": "total",
     "test": 76
   }

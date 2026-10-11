@@ -14,6 +14,8 @@ pub enum Cmd {
     Move(Req),
     List,
     Show(u32),
+    Tail(u32),
+    Clear,
 }
 
 fn announce(log: &mut Vec<String>, id: &str) -> Result<u32, String> {
@@ -61,6 +63,24 @@ pub fn run(cmd: Cmd, log: &mut Vec<String>) -> Result<u32, String> {
             let shown = log.iter().take(n as usize).count();
             Ok(shown as u32)
         }
+        Cmd::Tail(n) => {
+            let skip = log.len().saturating_sub(n as usize);
+            let tail: Vec<String> = log.iter().skip(skip).cloned().collect();
+            log.push(format!("tail {n}"));
+            for line in tail {
+                log.push(line);
+            }
+            Ok(n)
+        }
+        Cmd::Clear => {
+            let cleared = log.len() as u32;
+            log.clear();
+            log.push("cleared".to_string());
+            log.push(format!("{cleared} lines"));
+            log.shrink_to_fit();
+            log.reserve(16);
+            Ok(cleared)
+        }
     }
 }
 
@@ -72,5 +92,7 @@ pub fn weight(cmd: &Cmd) -> usize {
         Cmd::Move(r) => r.name.len().saturating_sub(1),
         Cmd::List => 0,
         Cmd::Show(n) => *n as usize % 7,
+        Cmd::Tail(n) => *n as usize,
+        Cmd::Clear => 1,
     }
 }

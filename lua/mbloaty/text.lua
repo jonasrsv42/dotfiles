@@ -1,6 +1,6 @@
 -- bloaty's words: the formatters shared by the tree's `B` explain
 -- (mbloaty.tree), the lens, its quickfix list and its float
--- (mbloaty.lens). Pure functions of bloaty's JSON (schema 3).
+-- (mbloaty.lens). Pure functions of bloaty's JSON (schema 11).
 
 local M = {}
 
@@ -129,26 +129,32 @@ function M.excuse(x)
 end
 
 -- The smell culprits, in order: the real (not excused) signals in
--- `smell.dims`, those bloaty marks `culprit` only unless `all`. A
--- dispatch's arm takes the blame when bloaty names one.
+-- `smell.dims` that bloaty marks `culprit`; with `all`, then the other real
+-- signals behind the level, without a verdict (`also: ...`). A dispatch's
+-- arm takes the blame when bloaty names one.
 -- Each: { line, verdict, ev, merged (evidence when joining another
--- culprit's line), list (quickfix text), dim, fn_line, sites }.
+-- culprit's line; nil for `also`), list (quickfix text), dim, fn_line,
+-- sites, also }.
 function M.culprits(g, all)
   local s = g and g.smell
   if not (M.level(g) and type(s.dims) == "table") then
     return {}
   end
-  local by = {}
+  local sizes, by = {}, {}
   for _, d in ipairs(s.dims) do
-    if not d.excused then
+    if d.excused then
+      -- What a noted file was noted for: `notes`.
+    elseif d.metric == "largest_fn" then
+      table.insert(sizes, d)
+    else
       by[d.metric] = d
     end
   end
-  local out = {}
+  local out, also = {}, {}
   -- At a dispatch's arm (bloaty blames one): the fn's number, then the
   -- arm's own (`100 lines · arm Listen 96`); merged into another culprit's
   -- line, just `(arm 96)` when it differs.
-  local function add(d, verdict, ev, dim)
+  local function at_arm(d, ev)
     local line, merged = d.line, ev
     if d.arm then
       line = d.arm.line
@@ -157,27 +163,53 @@ function M.culprits(g, all)
       end
       ev = string.format("%s · arm %s %d", ev, M.short_arm(d.arm.name), d.arm.value)
     end
+    return line, ev, merged
+  end
+  local function add(d, verdict, ev, dim)
+    local line, merged
+    line, ev, merged = at_arm(d, ev)
     table.insert(out, {
       line = line, verdict = verdict, ev = ev, merged = merged,
       list = string.format("%s %s: %s", verdict, M.fn_name(d.name), ev), dim = dim, fn_line = d.line,
     })
   end
-  local f, il = by.largest_fn, by.impl_lines
-  if f and (all or f.culprit) then
-    add(f, "split?", f.value .. " lines", "size")
-  elseif il then
-    local ev = il.value .. " impl lines"
-    table.insert(out, {
-      line = 1, verdict = "big file?", ev = ev, merged = ev, list = "big file? " .. ev, dim = "size",
+  -- Not a culprit: listed with `all`, no verdict.
+  local function aside(d, ev, dim)
+    if not all then
+      return
+    end
+    local line = d.name and at_arm(d, ev) or 1
+    local _, full = at_arm(d, ev)
+    table.insert(also, {
+      line = line, verdict = "also:", ev = full, also = true, dim = dim, fn_line = d.line,
+      list = "also: " .. (d.name and (M.short(d.name) .. ": ") or "") .. full,
     })
   end
-  local c = by.cyclomatic_complexity
-  if c and (all or c.culprit) then
-    add(c, "simplify?", "cyclomatic complexity " .. c.value, "complexity")
+  for _, f in ipairs(sizes) do
+    if not f.culprit then
+      aside(f, f.value .. " lines", "size")
+    elseif f.flat and f.arm then
+      -- A long flat arm: the arm is what's long (`fn 171` for context).
+      local ev = string.format("arm %s %d lines · flat (fn %d)", M.short_arm(f.arm.name), f.arm.value, f.value)
+      table.insert(out, {
+        line = f.arm.line, verdict = "long?", ev = ev, merged = ev,
+        list = string.format("long? %s: %s", M.fn_name(f.name), ev), dim = "size", fn_line = f.line,
+      })
+    elseif f.flat then
+      -- Long but flat (nothing nested): worth a look, gentler than split.
+      add(f, "long?", f.value .. " lines · flat", "size")
+    else
+      add(f, "split?", f.value .. " lines", "size")
+    end
   end
-  local n = by.nesting
-  if n and (all or n.culprit) then
-    add(n, "flatten?", "nesting " .. n.value, "complexity")
+  if by.impl_lines then
+    aside(by.impl_lines, by.impl_lines.value .. " impl lines", "size")
+  end
+  local c = by.cognitive_complexity
+  if c and c.culprit then
+    add(c, "simplify?", "cognitive complexity " .. c.value, "complexity")
+  elseif c then
+    aside(c, "cognitive complexity " .. c.value, "complexity")
   end
   local p = g.most_panics
   if by.panic_density and p then
@@ -191,6 +223,7 @@ function M.culprits(g, all)
       dim = "fragility", sites = p.sites, fn_line = p.line,
     })
   end
+  vim.list_extend(out, also)
   return out
 end
 
@@ -317,6 +350,16 @@ function M.by_line(findings)
   return sorted
 end
 
+-- A `bloaty metrics` fn's complexity, cognitive first with where its
+-- worst increment is, cyclomatic complexity and nesting as the breakdown:
+-- "cognitive complexity 22 (worst at line 31) · cyclomatic 12 · nesting 5".
+function M.complexity(fn)
+  local w = fn.worst_increment
+  return string.format("cognitive complexity %d%s · cyclomatic %d · nesting %d",
+    fn.cognitive_complexity or 0, w and string.format(" (worst at line %d)", w.line) or "",
+    fn.cyclomatic_complexity, fn.nesting)
+end
+
 -- Lines describing a `bloaty metrics` fn's shape and allowed lints, for
 -- the float.
 function M.shape(fn)
@@ -325,11 +368,12 @@ function M.shape(fn)
     table.insert(lines, string.format("table · %d entries (its %d lines excused)", sh.entries, sh.lines))
   elseif sh and sh.kind == "dispatch" then
     local w, r, c = sh.worst, sh.remainder, sh.counted
-    table.insert(lines, string.format("dispatch · %d arms, %d counted (%d lines · cyclomatic complexity %d), the small ones excused",
-      sh.arms, c.arms, c.lines, c.cyclomatic_complexity))
-    table.insert(lines, string.format("the rest: %d lines · cyclomatic complexity %d · nesting %d", r.lines, r.cyclomatic_complexity, r.nesting))
+    table.insert(lines, string.format("dispatch · %d arms, %d counted (%d lines · cognitive complexity %d), the small ones excused",
+      sh.arms, c.arms, c.lines, c.cognitive_complexity))
+    table.insert(lines, string.format("the rest: %d lines · cognitive complexity %d · cyclomatic %d · nesting %d",
+      r.lines, r.cognitive_complexity, r.cyclomatic_complexity, r.nesting))
     local blamed = {}
-    for _, k in ipairs({ { "lines", "%d lines" }, { "cyclomatic_complexity", "cyclomatic complexity %d" }, { "nesting", "nesting %d" } }) do
+    for _, k in ipairs({ { "lines", "%d lines" }, { "cognitive_complexity", "cognitive complexity %d" } }) do
       local a = w[k[1]]
       if a then
         table.insert(blamed, string.format(k[2] .. " %s :%d", a.value, M.short_arm(a.name), a.line))

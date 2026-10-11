@@ -1,8 +1,9 @@
 Code lines split into implementation, test, doc and comment.
 
 With --by file, JSON groups also carry the file's non-test fn metrics (see
-`bloaty metrics`): `largest_fn` {name, line, lines}, `max_cyclomatic_complexity` and
-`max_nesting` {name, line, value}, `most_panics` {name, line, value, sites}
+`bloaty metrics`): `largest_fn` {name, line, lines},
+`max_cognitive_complexity`, and `max_cyclomatic_complexity` and
+`max_nesting` (reported, not scored) {name, line, value}, `most_panics` {name, line, value, sites}
 (the fn with the most panic sites and where they are, as in `bloaty metrics`;
 absent without panics), `panics`, `clones`, and `panic_density` (panic sites
 per 100 impl lines, only from 30 impl lines). Fn fields are absent without
@@ -11,50 +12,59 @@ fns; all are absent for whole-test files.
 They also carry `smell` (files with >= 10 impl lines and a fn, not
 whole-test, build script or example), ranked against every such file in the
 linked workspace, so PATH doesn't change it: `size`, `complexity` and
-`fragility` as percentiles (largest fn or impl lines; cyclomatic
-complexity, or nesting from 4; panic density of files with >= 2 panics,
+`fragility` as percentiles (largest fn or impl lines; cognitive
+complexity; panic density of files with >= 2 panics,
 >= 30 impl lines and >= 1 per 100, fixed bands 0.9/0.75/0.5 at >= 3/1.5/1
 per 100 when under 5 files qualify; a zero signal is 0), `front` (Pareto
 front on those three, 1 = nothing is worse on all) and `level`: "hot" for
 the first files walking the fronts with a dimension >= 0.9 (at most 5% of
 files), "warm" for the next by sum with one >= 0.75 (at most 10% more,
 none under 20 files), "noted" (below), else null. Hot and warm need a fn
-of >= 40 lines, cyclomatic complexity >= 10, nesting >= 4 or the panic
-density above.
+of >= 40 lines, cognitive complexity >= 15 or the panic density above,
+and a culprit among the signals that level would name (`culprit` below):
+a file with nothing to point at gets no level (it is still ranked, and
+its slot goes to the next file). Hot also needs a culprit that isn't a
+long flat fn (`flat` below: >= 60 lines with nothing nested: no cognitive
+increment over 1): a file whose only culprits are long flat fns is warm
+at most. A longer flat fn doesn't hide a culprit-sized fn with something
+nested: both are named.
 
 Excused signals don't count toward the score (see `bloaty metrics` for
 `shape` and `allowed`):
 - a table's literal: its lines (the rest of the fn counts as usual);
-- a dispatch's small arms (<= 12 code lines and cyclomatic complexity
-  <= 3 in the body, the pattern aside; each measured like a fn): it counts as its remainder (the lets
-  before the match, the scrutinee) plus every arm that isn't small: their
-  lines added, the match's decision and their branches added to the
-  remainder's cyclomatic complexity, nesting the deepest of remainder and
-  arms;
-- a fn's lines under #[allow(clippy::too_many_lines)], its cyclomatic
-  complexity under #[allow(clippy::cognitive_complexity)] (nesting has no
-  clippy lint and is never excused this way). Also #[expect], and inside
-  #[cfg_attr(..)] unless its condition is `any()`; only on the fn itself,
-  not its impl or module, and not via clippy::all or clippy::pedantic.
-  Below twice the bar only: from 80 lines or cyclomatic complexity 20 the
-  allow is ignored.
+- a dispatch's small arms (<= 12 code lines and cognitive complexity
+  <= 3 in the body, the pattern aside; each measured like a fn, from
+  nesting 0): it counts as its remainder (the lets before the match, the
+  scrutinee) plus every arm that isn't small: their lines added, and the
+  match's 1 plus their cognitive complexity added to the remainder's;
+- a fn's lines under #[allow(clippy::too_many_lines)], its cognitive
+  complexity under #[allow(clippy::cognitive_complexity)]. Also #[expect],
+  and inside #[cfg_attr(..)] unless its condition is `any()`; only on the
+  fn itself, not its impl or module, and not via clippy::all or
+  clippy::pedantic. Below twice the bar only: from 80 lines or cognitive
+  complexity 30 the allow is ignored.
 Panics never are. "noted" files would have been hot or warm with them
-counted, and an excused fn is behind that. A dispatch arm of >= 60 lines,
-cyclomatic complexity >= 8 or nesting >= 4 keeps a file that the whole
-dispatch would make hot or warm at the worse of both levels, pointing at
-the arm.
+counted, and an excused fn whose own number reaches the culprit bar is
+behind that (only such excused signals are listed). A dispatch
+arm of >= 60 lines or cognitive complexity >= 10 keeps a file that the
+whole dispatch would make hot or warm at the worse of both levels,
+pointing at the arm.
 
 Levelled files have `why`: the signals behind the level with raw numbers,
 as text for display, and `dims`: the same structured, one entry per
 signal [{dim, metric, value, name?, line?, arm?, panics?, culprit?,
-excused?}].
+flat?, excused?}].
 `dim` is size/complexity/fragility; `metric` is largest_fn (value: its
 lines; name, line: the fn), impl_lines (value: the file's),
-cyclomatic_complexity or nesting (value; name, line: the fn), or
-panic_density (value: per 100 impl lines, a float; panics: the count).
+cognitive_complexity (value; name, line: the fn), or panic_density
+(value: per 100 impl lines, a float; panics: the count).
 `arm` {name, line, value}: a dispatch's arm to blame (its worst counted
-arm outweighs the rest of the fn), with the arm's own number. `culprit: true` marks real fn signals worth pointing
-at: >= 60 lines, cyclomatic complexity >= 8 or nesting >= 4. `excused`
+arm outweighs the rest of the fn), with the arm's own number. `culprit: true` marks real signals worth pointing
+at: a fn of >= 60 lines or cognitive complexity >= 10, and the panic
+density; every hot or warm file has one. `flat: true` marks a culprit
+largest_fn whose fn (or blamed arm) has nothing nested, as the score
+counts it (a dispatch: its remainder and counted arms, each from inside
+the arm): long but flat, worth a look rather than a split. `excused`
 marks what the file is noted for (hot and warm files can have such entries
 too), with why: {kind: "table", entries}, {kind: "dispatch", arms,
 repeat?} or {kind: "allowed", lint: "too_many_lines" |

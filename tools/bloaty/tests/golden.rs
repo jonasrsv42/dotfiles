@@ -70,7 +70,7 @@ fn group<'a>(summary: &'a Value, name: &str) -> &'a Value {
 #[test]
 fn summary_by_file() {
     let v = Ws::new("summary").run(&["summary", ".", "--by", "file", "--json"]);
-    assert_eq!(v["schema"], 7);
+    assert_eq!(v["schema"], 11);
     // What the fixture is for: each role still plays out.
     let level = |name: &str| -> Value { group(&v, name)["smell"]["level"].clone() };
     assert_eq!(level("core/src/hot.rs"), "hot");
@@ -85,14 +85,15 @@ fn summary_by_file() {
     let dims = |name: &str| -> Value { group(&v, name)["smell"]["dims"].clone() };
     // The bad arm is the culprit, by name and line.
     let arm = &dims("core/src/badarm.rs")[2];
-    assert_eq!(arm["metric"], "cyclomatic_complexity");
+    assert_eq!(arm["metric"], "cognitive_complexity");
+    assert_eq!(arm["culprit"], true);
     assert_eq!(arm["arm"]["name"], "Op::Rebalance");
     assert!(arm.get("excused").is_none());
     let excused = |name, i: usize| dims(name)[i]["excused"].clone();
     assert_eq!(excused("core/src/routes.rs", 0)["kind"], "table");
     assert_eq!(excused("core/src/allowed.rs", 0)["lint"], "too_many_lines");
     let d = excused("core/src/dispatch.rs", 0);
-    assert_eq!((&d["kind"], &d["arms"]), (&"dispatch".into(), &6.into()));
+    assert_eq!((&d["kind"], &d["arms"]), (&"dispatch".into(), &8.into()));
     assert_eq!(d["repeat"]["at"].as_array().unwrap().len(), 4);
     let metrics: Vec<&str> = group(&v, "core/src/hot.rs")["smell"]["dims"]
         .as_array()
@@ -102,12 +103,7 @@ fn summary_by_file() {
         .collect();
     assert_eq!(
         metrics,
-        [
-            "largest_fn",
-            "impl_lines",
-            "cyclomatic_complexity",
-            "nesting"
-        ]
+        ["largest_fn", "impl_lines", "cognitive_complexity"]
     );
     assert_eq!(
         group(&v, "core/src/fragile.rs")["smell"]["dims"][0]["metric"],
@@ -122,7 +118,7 @@ fn summary_by_file() {
 #[test]
 fn findings() {
     let v = Ws::new("findings").run(&["findings", ".", "--json", "--top", "0"]);
-    assert_eq!(v["schema"], 7);
+    assert_eq!(v["schema"], 11);
     let kinds: Vec<&str> = v["findings"]
         .as_array()
         .unwrap()
@@ -172,7 +168,7 @@ fn findings() {
 #[test]
 fn metrics() {
     let v = Ws::new("metrics").run(&["metrics", ".", "--json"]);
-    assert_eq!(v["schema"], 7);
+    assert_eq!(v["schema"], 11);
     let sites: Vec<&str> = v["functions"]
         .as_array()
         .unwrap()
