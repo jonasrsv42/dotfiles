@@ -9,6 +9,8 @@ description = "Where does the code in a Rust project live, and where is it bloat
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 ignore = "0.4"
+# The tokenizer in lines/tokens.rs (parser combinators).
+parsicomb = { git = "https://github.com/jonasrsv42/parsicomb", rev = "9344c12abbfbd17a11c9871687352ab56cd36b6d" }
 # span-locations gives syn spans real line numbers outside proc macros.
 proc-macro2 = { version = "1", features = ["span-locations"] }
 quote = "1"

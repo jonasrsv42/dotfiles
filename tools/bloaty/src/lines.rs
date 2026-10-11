@@ -1,7 +1,13 @@
 //! Per-line classification of Rust source. syn drops comments, so this is a
-//! small hand-rolled lexer that only knows enough Rust (strings, raw strings,
-//! char literals vs lifetimes, nested block comments) to not be fooled by `//`
-//! inside a string.
+//! small lexer that only knows enough Rust (strings, raw strings, char
+//! literals vs lifetimes, nested block comments) to not be fooled by `//`
+//! inside a string. Two stages: `tokens` splits the source into tokens with
+//! their byte and line spans; `Fold` consumes them, marking each line and
+//! tracking how deep syn would recurse.
+
+mod tokens;
+
+use tokens::{Kind, Token, is_ident, tokens};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum LineClass {
@@ -21,28 +27,13 @@ pub struct Classified {
 }
 
 pub fn classify(src: &str) -> Classified {
-    let mut lx = Lexer {
-        s: src.chars().collect(),
-        i: 0,
-        line: 0,
-        flags: vec![Flags::default(); src.lines().count() + 1],
-        depth: 0,
-        chain: 0,
-        postfix: 0,
-        angle: 0,
-        outer: 0,
-        saved: Vec::new(),
-        after_brace: false,
-        prev: '\0',
-        max_depth: 0,
-    };
-    lx.i = usize::from(lx.at(0) == '\u{feff}');
-    lx.shebang();
-    while lx.i < lx.s.len() {
-        lx.token();
+    let mut fold = Fold::new(src);
+    for t in tokens(src) {
+        fold.token(t);
     }
-    lx.flags.truncate(src.lines().count());
-    let lines = lx
+    let n = src.lines().count();
+    fold.flags.truncate(n);
+    let lines = fold
         .flags
         .iter()
         .map(|f| {
@@ -59,7 +50,7 @@ pub fn classify(src: &str) -> Classified {
         .collect();
     Classified {
         lines,
-        max_depth: lx.max_depth,
+        max_depth: fold.max_depth,
     }
 }
 
@@ -78,11 +69,26 @@ enum Mark {
     Comment,
 }
 
-struct Lexer {
-    s: Vec<char>,
-    i: usize,
-    /// 0-based line of `s[i]`.
-    line: usize,
+impl Mark {
+    fn comment(doc: bool) -> Mark {
+        if doc { Mark::Doc } else { Mark::Comment }
+    }
+}
+
+/// What the last significant token was, as far as nesting cares.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Prev {
+    /// An identifier or literal.
+    Operand,
+    /// `)`, `]` or `}`.
+    Close,
+    /// Anything else: operators, keywords, lifetimes, the start.
+    Other,
+}
+
+/// Marks lines and tracks nesting over the tokens.
+struct Fold<'a> {
+    src: &'a str,
     /// One more than the line count: a file may end mid-line.
     flags: Vec<Flags>,
     depth: usize,
@@ -99,25 +105,33 @@ struct Lexer {
     angle: usize,
     /// chain + angle of the enclosing bracket levels.
     outer: usize,
-    saved: Vec<(usize, usize, usize)>,
+    /// chain, angle and postfix of the enclosing bracket levels, and
+    /// whether each is a `{` block.
+    saved: Vec<(usize, usize, usize, bool)>,
     after_brace: bool,
-    /// The last significant character: `a` after an identifier or literal,
-    /// `k` after a keyword.
-    prev: char,
+    prev: Prev,
     max_depth: usize,
 }
 
-fn is_ident(c: char) -> bool {
-    c.is_alphanumeric() || c == '_'
-}
-
-impl Lexer {
-    fn at(&self, i: usize) -> char {
-        self.s.get(i).copied().unwrap_or('\0')
+impl<'a> Fold<'a> {
+    fn new(src: &'a str) -> Self {
+        Fold {
+            src,
+            flags: vec![Flags::default(); src.lines().count() + 1],
+            depth: 0,
+            chain: 0,
+            postfix: 0,
+            angle: 0,
+            outer: 0,
+            saved: Vec::new(),
+            after_brace: false,
+            prev: Prev::Other,
+            max_depth: 0,
+        }
     }
 
-    fn mark(&mut self, m: Mark) {
-        if let Some(f) = self.flags.get_mut(self.line) {
+    fn mark(&mut self, line: usize, m: Mark) {
+        if let Some(f) = self.flags.get_mut(line) {
             match m {
                 Mark::Code => f.code = true,
                 Mark::Doc => f.doc = true,
@@ -126,76 +140,58 @@ impl Lexer {
         }
     }
 
-    /// A `#!` first line that isn't an inner attribute `#![` is a shebang.
-    fn shebang(&mut self) {
-        if self.at(self.i) != '#' || self.at(self.i + 1) != '!' {
-            return;
-        }
-        let mut j = self.i + 2;
-        while self.at(j).is_whitespace() && self.at(j) != '\n' {
-            j += 1;
-        }
-        if self.at(j) != '[' {
-            self.mark(Mark::Comment);
-            self.skip_to_eol();
-        }
-    }
-
-    fn skip_to_eol(&mut self) {
-        while self.i < self.s.len() && self.s[self.i] != '\n' {
-            self.i += 1;
+    fn token(&mut self, t: Token) {
+        let text = &self.src[t.start..t.end];
+        match t.kind {
+            Kind::Space => {}
+            Kind::Shebang => self.mark(t.line, Mark::Comment),
+            Kind::LineComment { doc } => self.mark(t.line, Mark::comment(doc)),
+            // Lines inside count only if they have more than whitespace.
+            Kind::BlockComment { doc } => {
+                for (k, part) in text.split('\n').enumerate() {
+                    if k == 0 || !part.trim().is_empty() {
+                        self.mark(t.line + k, Mark::comment(doc));
+                    }
+                }
+            }
+            _ => self.code(t, text),
         }
     }
 
-    /// Consumes one token (or newline/whitespace) at `i`.
-    fn token(&mut self) {
-        let (c, next) = (self.s[self.i], self.at(self.i + 1));
-        let trivia = c.is_whitespace() || (c == '/' && matches!(next, '/' | '*'));
-        if self.after_brace && !trivia {
-            self.after_brace = false;
-            // `{..} + |x| ..` continues an expression; anything else after a
-            // closing brace starts a new statement or item.
-            let continues = matches!(
-                c,
-                '+' | '-' | '*' | '/' | '%' | '^' | '&' | '|' | '<' | '>' | '=' | '.' | '?'
-            ) || (c == '!' && next == '=')
-                || (c == 'a' && next == 's' && !is_ident(self.at(self.i + 2)));
-            if !continues {
-                self.chain = 0;
-                self.angle = 0;
-                self.postfix = 0;
-            }
+    /// Every line a code token touches is code (several only for strings).
+    fn code(&mut self, t: Token, text: &str) {
+        if std::mem::take(&mut self.after_brace) && !self.continues(t, text) {
+            (self.chain, self.angle, self.postfix) = (0, 0, 0);
         }
-        match c {
-            '\n' => {
-                self.line += 1;
-                self.i += 1;
+        for line in t.line..=t.last_line {
+            self.mark(line, Mark::Code);
+        }
+        self.prev = match t.kind {
+            Kind::Ident => self.word(text),
+            Kind::Punct => {
+                self.punct(t, text);
+                match text {
+                    ")" | "]" | "}" => Prev::Close,
+                    _ => Prev::Other,
+                }
             }
-            c if c.is_whitespace() => self.i += 1,
-            '/' if next == '/' => self.line_comment(),
-            '/' if next == '*' => self.block_comment(),
-            '"' => {
-                self.i += 1;
-                self.string();
-                self.prev = 'a';
+            // A lifetime isn't an operand: `&'a &'a T` nests.
+            Kind::Lifetime => Prev::Other,
+            _ => Prev::Operand,
+        };
+    }
+
+    /// `{..} + |x| ..` continues an expression; anything else after a
+    /// closing brace starts a new statement or item.
+    fn continues(&self, t: Token, text: &str) -> bool {
+        match t.kind {
+            Kind::Ident => text == "as",
+            Kind::Punct => {
+                let next = self.src.as_bytes().get(t.start + 1).copied();
+                let c = text.as_bytes()[0];
+                b"+-*/%^&|<>=.?".contains(&c) || (c == b'!' && next == Some(b'='))
             }
-            '\'' => {
-                // A lifetime isn't an operand: `&'a &'a T` nests.
-                self.prev = if self.char_or_lifetime() { 'a' } else { 'l' };
-            }
-            c if is_ident(c) => {
-                self.prev = if self.ident_or_prefixed_literal() {
-                    'k'
-                } else {
-                    'a'
-                };
-            }
-            c => {
-                self.mark(Mark::Code);
-                self.punct(c, next);
-                self.prev = c;
-                self.i += 1;
-            }
+            _ => false,
         }
     }
 
@@ -205,92 +201,66 @@ impl Lexer {
             .max(self.depth + self.outer + self.chain + self.angle + self.postfix / 500);
     }
 
-    /// Tracks nesting for one punctuation character (two for `||`, `&&`,
-    /// `==`, `=>`).
-    // A token table: one arm per punctuation rule over shared lexer state.
-    #[allow(clippy::cognitive_complexity)]
-    fn punct(&mut self, c: char, next: char) {
-        let before = self.at(self.i.wrapping_sub(1));
+    /// Keywords starting a nested expression recurse in syn like prefix
+    /// operators: `return return ..`, `if if ..`, `match match ..`. After
+    /// them and a few others, `*`/`&`/`-` start an operand: `*const *const
+    /// T`.
+    fn word(&mut self, word: &str) -> Prev {
+        const NESTING: &[&str] = &[
+            "return", "break", "if", "match", "while", "yield", "become", "let", "in", "move",
+            "async", "unsafe",
+        ];
+        const OTHER: &[&str] = &[
+            "as", "const", "mut", "dyn", "impl", "else", "for", "loop", "where", "static", "ref",
+            "fn",
+        ];
+        if NESTING.contains(&word) {
+            self.chain += 1;
+            self.bump();
+            Prev::Other
+        } else if OTHER.contains(&word) {
+            Prev::Other
+        } else {
+            Prev::Operand
+        }
+    }
+
+    /// Tracks nesting for one punctuation token.
+    fn punct(&mut self, t: Token, op: &str) {
+        let bytes = self.src.as_bytes();
+        let at = |i: Option<usize>| i.and_then(|i| bytes.get(i)).copied().unwrap_or(0);
+        let before = self.src[..t.start].chars().next_back().unwrap_or('\0');
+        let next = at(Some(t.start + 1));
         // In operand position (`!x`, `&x`, `*const *const T`, `|x| ..`), not
         // after an operand (`a & b`).
-        let prefix = !matches!(self.prev, 'a' | ')' | ']' | '}');
-        if c == '?' || (matches!(c, '.' | '(' | '[') && !prefix) {
+        let prefix = !matches!(self.prev, Prev::Operand | Prev::Close);
+        if op == "?" || (matches!(op.as_bytes()[0], b'.' | b'(' | b'[') && !prefix) {
             self.postfix += 1;
         }
-        let chained = match c {
-            '(' | '[' | '{' => {
-                self.bump();
-                self.saved.push((self.chain, self.angle, self.postfix));
-                // A block's own nesting restarts (`if x {`, `fn f() -> &T {`);
-                // what it is part of resumes after it (`|x| {..} + |y| ..`).
-                if c == '{' {
-                    self.saved.last_mut().expect("just pushed").0 |= 1 << 63;
-                } else {
-                    self.outer += self.chain + self.angle;
-                }
-                (self.chain, self.angle, self.postfix) = (0, 0, 0);
-                self.depth += 1;
-                false
-            }
-            ')' | ']' | '}' => {
-                if let Some((ch, an, pf)) = self.saved.pop() {
-                    let block = ch & (1 << 63) != 0;
-                    let ch = ch & !(1 << 63);
-                    if !block {
-                        self.outer -= ch + an;
-                    }
-                    (self.chain, self.angle, self.postfix) = (ch, an, pf);
-                }
-                self.depth = self.depth.saturating_sub(1);
-                self.after_brace = c == '}';
-                false
-            }
-            '|' | '&' if next == c => {
-                self.i += 1; // `||` / `&&`: one token
+        let chained = match op {
+            "(" | "[" | "{" => self.open(op == "{"),
+            ")" | "]" | "}" => self.close(op == "}"),
+            "||" | "&&" => {
                 if !prefix {
                     self.angle = 0; // `a < b && ..`: that `<` was a comparison
                 }
                 prefix
             }
-            '=' if matches!(next, '=' | '>') => {
-                self.i += 1; // `==` / `=>`
-                false
-            }
-            '=' => {
+            ".." | "&" | "*" | "|" => prefix,
+            "-" => prefix || next == b'>',
+            "!" => prefix && next != b'=',
+            "@" | ">>=" => true,
+            // Assignment, also compound (`+=`, `<<=`); not `<=`, `>=`, `!=`.
+            "=" => {
                 !matches!(before, '=' | '<' | '>' | '!' | '.')
-                    || (matches!(before, '<' | '>') && self.at(self.i.wrapping_sub(2)) == before)
+                    || (matches!(before, '<' | '>') && at(t.start.checked_sub(2)) == before as u8)
             }
-            '.' if next == '.' => {
-                self.i += 1;
-                prefix
-            }
-            '@' => true,
-            '>' if next == '>' && self.at(self.i + 2) == '=' => {
-                self.i += 2;
-                true
-            }
-            '-' if next == '>' => true,
-            '!' if next == '=' => false,
-            '-' | '!' | '&' | '*' | '|' => prefix,
-            // Generics (`Vec<..`, `Vec < ..`) and qualified paths (`<<T as
-            // A>::B as C>::D`); not shifts (`a << b`), `<=` or `f() < x`.
-            '<' => {
-                let generic = is_ident(before)
-                    || before == ':'
-                    || prefix
-                    || (self.prev == 'a' && !matches!(next, '<' | '=') && before != '<');
-                if generic {
-                    self.angle += 1;
-                }
+            "<" => {
+                self.angle_open(before, next, prefix);
                 false
             }
-            '>' if !matches!(before, '-' | '=') && next != '=' => {
-                // Closing a generic ends what was nested in it (`Item = ..`,
-                // markup attributes); a comparison (`|x| x > 0 || ..`) doesn't.
-                if self.angle > 0 {
-                    self.angle -= 1;
-                    self.chain = 0;
-                }
+            ">" => {
+                self.angle_close(before, next);
                 false
             }
             _ => false,
@@ -298,181 +268,62 @@ impl Lexer {
         if chained {
             self.chain += 1;
         }
-        if matches!(c, ';' | ',') {
+        if matches!(op, ";" | ",") {
             self.chain = 0;
             self.postfix = 0;
         }
-        if c == ';' {
+        if op == ";" {
             self.angle = 0;
         }
         self.bump();
     }
 
-    /// `///x` and `//!x` are docs, `////` is a plain comment.
-    fn line_comment(&mut self) {
-        let (c2, c3) = (self.at(self.i + 2), self.at(self.i + 3));
-        let doc = (c2 == '/' && c3 != '/') || c2 == '!';
-        self.mark(if doc { Mark::Doc } else { Mark::Comment });
-        self.skip_to_eol();
+    fn open(&mut self, block: bool) -> bool {
+        self.bump();
+        self.saved
+            .push((self.chain, self.angle, self.postfix, block));
+        // A block's own nesting restarts (`if x {`, `fn f() -> &T {`); what
+        // it is part of resumes after it (`|x| {..} + |y| ..`).
+        if !block {
+            self.outer += self.chain + self.angle;
+        }
+        (self.chain, self.angle, self.postfix) = (0, 0, 0);
+        self.depth += 1;
+        false
     }
 
-    /// Nested block comments. `/**x` and `/*!x` are docs; `/**/` and `/***`
-    /// are not. Lines inside count only if they have more than whitespace.
-    fn block_comment(&mut self) {
-        let (c2, c3) = (self.at(self.i + 2), self.at(self.i + 3));
-        let kind = if (c2 == '*' && c3 != '*' && c3 != '/') || c2 == '!' {
-            Mark::Doc
-        } else {
-            Mark::Comment
-        };
-        self.mark(kind);
-        self.i += 2;
-        let mut depth = 1;
-        while self.i < self.s.len() && depth > 0 {
-            let (c, next) = (self.s[self.i], self.at(self.i + 1));
-            if c == '\n' {
-                self.line += 1;
-                self.i += 1;
-                continue;
+    fn close(&mut self, brace: bool) -> bool {
+        if let Some((ch, an, pf, block)) = self.saved.pop() {
+            if !block {
+                self.outer -= ch + an;
             }
-            if !c.is_whitespace() {
-                self.mark(kind);
-            }
-            match (c, next) {
-                ('/', '*') => {
-                    depth += 1;
-                    self.i += 2;
-                }
-                ('*', '/') => {
-                    depth -= 1;
-                    self.i += 2;
-                }
-                _ => self.i += 1,
-            }
+            (self.chain, self.angle, self.postfix) = (ch, an, pf);
+        }
+        self.depth = self.depth.saturating_sub(1);
+        self.after_brace = brace;
+        false
+    }
+
+    /// Generics (`Vec<..`, `Vec < ..`) and qualified paths (`<<T as A>::B as
+    /// C>::D`); not shifts (`a << b`), `<=` or `f() < x`.
+    fn angle_open(&mut self, before: char, next: u8, prefix: bool) {
+        let generic = is_ident(before)
+            || before == ':'
+            || prefix
+            || (self.prev == Prev::Operand && !matches!(next, b'<' | b'=') && before != '<');
+        if generic {
+            self.angle += 1;
         }
     }
 
-    /// From just after the opening `"` to just past the closing one. Every
-    /// line the string touches counts as code.
-    fn string(&mut self) {
-        self.mark(Mark::Code);
-        while self.i < self.s.len() {
-            match self.s[self.i] {
-                '\\' => {
-                    if self.at(self.i + 1) == '\n' {
-                        self.line += 1;
-                        self.mark(Mark::Code);
-                    }
-                    self.i += 2;
-                }
-                '\n' => {
-                    self.line += 1;
-                    self.mark(Mark::Code);
-                    self.i += 1;
-                }
-                '"' => {
-                    self.i += 1;
-                    return;
-                }
-                _ => self.i += 1,
-            }
+    /// Closing a generic ends what was nested in it (`Item = ..`, markup
+    /// attributes); a comparison (`|x| x > 0 || ..`) doesn't. Not `->`, `=>`
+    /// or `>=`.
+    fn angle_close(&mut self, before: char, next: u8) {
+        if !matches!(before, '-' | '=') && next != b'=' && self.angle > 0 {
+            self.angle -= 1;
+            self.chain = 0;
         }
-    }
-
-    /// From just after the opening `"` of `r##"..."##` to past its end.
-    fn raw_string(&mut self, hashes: usize) {
-        self.mark(Mark::Code);
-        while self.i < self.s.len() {
-            let c = self.s[self.i];
-            if c == '\n' {
-                self.line += 1;
-                self.mark(Mark::Code);
-            } else if c == '"' && (1..=hashes).all(|h| self.at(self.i + h) == '#') {
-                self.i += 1 + hashes;
-                return;
-            }
-            self.i += 1;
-        }
-    }
-
-    /// `'a'`, `'\n'`, `'\u{1F600}'`, or a lifetime/label `'a`.
-    fn char_or_lifetime(&mut self) -> bool {
-        self.mark(Mark::Code);
-        if self.at(self.i + 1) == '\\' {
-            self.i += 3;
-            while self.i < self.s.len() && !matches!(self.s[self.i], '\'' | '\n') {
-                self.i += 1;
-            }
-            self.i += 1;
-            true
-        } else if self.at(self.i + 2) == '\'' {
-            self.i += 3;
-            true
-        } else {
-            self.i += 1;
-            while self.i < self.s.len() && is_ident(self.s[self.i]) {
-                self.i += 1;
-            }
-            // Not a lifetime after all (`'ab'`): close it as a literal.
-            let literal = self.at(self.i) == '\'';
-            self.i += usize::from(literal);
-            literal
-        }
-    }
-
-    /// An identifier, or a prefixed literal: `b".."`, `c".."`, `r".."`,
-    /// `r#".."#`, `br".."`, `cr#".."#`, `b'x'`. Returns whether it was a
-    /// keyword.
-    fn ident_or_prefixed_literal(&mut self) -> bool {
-        self.mark(Mark::Code);
-        let start = self.i;
-        let mut j = start;
-        if matches!(self.s[j], 'b' | 'c') {
-            j += 1;
-        }
-        if self.at(j) == 'r' && matches!(self.at(j + 1), '"' | '#') {
-            let mut k = j + 1;
-            while self.at(k) == '#' {
-                k += 1;
-            }
-            if self.at(k) == '"' {
-                self.i = k + 1;
-                self.raw_string(k - j - 1);
-                return false;
-            }
-        } else if j > start && self.at(j) == '"' {
-            self.i = j + 1;
-            self.string();
-            return false;
-        } else if self.s[start] == 'b' && self.at(start + 1) == '\'' {
-            self.i = start + 1;
-            self.char_or_lifetime();
-            return false;
-        }
-        while self.i < self.s.len() && is_ident(self.s[self.i]) {
-            self.i += 1;
-        }
-        // Keywords starting a nested expression recurse in syn like prefix
-        // operators: `return return ..`, `if if ..`, `match match ..`.
-        const NESTING: &[&str] = &[
-            "return", "break", "if", "match", "while", "yield", "become", "let", "in", "move",
-            "async", "unsafe",
-        ];
-        // After these, `*`/`&`/`-` start an operand: `*const *const T`.
-        const OTHER: &[&str] = &[
-            "as", "const", "mut", "dyn", "impl", "else", "for", "loop", "where", "static", "ref",
-            "fn",
-        ];
-        let word = &self.s[start..self.i];
-        let is = |list: &[&str]| {
-            word.len() <= 6 && list.iter().any(|k| k.chars().eq(word.iter().copied()))
-        };
-        if is(NESTING) {
-            self.chain += 1;
-            self.bump();
-            return true;
-        }
-        is(OTHER)
     }
 }
 
@@ -588,5 +439,35 @@ fn main() { // trailing comment is still code
             classify(src).lines,
             vec![Code, Code, Code, Code, Code, Code, Code, Comment]
         );
+    }
+
+    #[test]
+    fn reads_non_ascii_as_characters() {
+        let class = |src: &str| classify(src).lines;
+        let depth = |src: &str| classify(src).max_depth;
+        // A leading byte order mark isn't code; Unicode spaces are blank.
+        assert_eq!(class("\u{feff}fn f() {}\n"), vec![Code]);
+        assert_eq!(depth("\u{feff}fn f() {}\n"), 1);
+        assert_eq!(
+            class("let é = 1;\n\u{a0}\n// ü\n"),
+            vec![Code, Blank, Comment]
+        );
+        assert_eq!(
+            class("/* ✓\n\u{3000}\n*/ let c = 'é';\n"),
+            vec![Comment, Blank, Code]
+        );
+        assert_eq!(class("x\u{2028}// c\n"), vec![Code]);
+        assert_eq!(depth("let s = \"→ /* no */\";\n"), 2);
+        assert_eq!(depth("let l: &'é str = x; let c = b'\\'';\n"), 3);
+        // `é<` opens a generic like `e<`.
+        assert_eq!(depth("fn f() { Vecé<Vecé<u8>> }\n"), 3);
+    }
+
+    #[test]
+    fn deep_comment_nesting_is_counted_not_recursed() {
+        let src = format!("fn f() {{}}\n{}\nx", "/*".repeat(1_000_000));
+        let c = classify(&src);
+        assert_eq!(c.lines, vec![Code, Comment, Comment]);
+        assert_eq!(c.max_depth, 1);
     }
 }

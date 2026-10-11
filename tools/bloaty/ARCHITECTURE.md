@@ -33,8 +33,13 @@ Rust (src/):
   parses files in parallel (`analyse`), resolves module trees (`ModWalk`)
   to tell test files and orphans. Reports narrow to PATH; analysis always sees the
   whole workspace.
-- `lines.rs`: hand-rolled line classifier (syn drops comments): code, doc,
-  comment, blank; `LineCounts`.
+- `lines.rs`: line classifier (syn drops comments): code, doc, comment,
+  blank; `LineCounts`; the nesting depth that keeps absurd files from
+  syn. A fold (`Fold`: line marks, depth) over the tokens of
+  `lines/tokens.rs`: the lexical grammar (comments, strings, char literals
+  vs lifetimes) as parsicomb parsers, dispatched on a token's first byte;
+  the two hand-written parts (the streamed `token*` loop, the nested
+  comment depth count) say why.
 - `visit.rs`: one `syn::Visit` per file → `FileFacts` (test ranges, mod
   decls, imports, `FnFact`s, items, impls, name mentions).
   - `visit/cfg.rs`: which attributes make code test-only / checked-test.
@@ -315,8 +320,8 @@ nvim --headless -u NONE -l tools/bloaty/nvim_test.lua   # from the repo root
   PATH.
 - tests/dogfood.rs: bloaty's own fns (its `metrics` JSON) stay under
   cyclomatic complexity 15 unless they allow or expect
-  `clippy::cognitive_complexity` under a `//` comment saying why
-  (`Lexer::punct`).
+  `clippy::cognitive_complexity` under a `//` comment saying why (none
+  does today).
 - tests/fixtures/.bloatyignore keeps the fixture out of scans of this repo.
 
 ## Recipes
