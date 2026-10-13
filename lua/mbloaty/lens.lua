@@ -5,6 +5,8 @@
 --   ◂ split? 100 lines · cognitive complexity 22
 --   ◂ simplify? cognitive complexity 17 · arm Op::Rebalance 16   (at a dispatch's arm)
 --   ◂ duplicate · pollen/sys.rs:27
+-- and, on the first of tests differing only in literals (no `•`: tests),
+--   ◂ parametrize? 5 tests · 3 literals
 -- and, in blue, what was excused from the score (the whole story of a noted
 -- file's blue dot): `◂ table · 24 entries`, `◂ dispatch · 9 arms ·
 -- shared prefix in 4 arms (1 statement)`, `◂ allowed · too_many_lines`.
@@ -184,9 +186,10 @@ local function current()
 end
 
 --- Fills the quickfix list with the file's culprits, blue notes (each
---- copy of a dispatch's shared prefix too), findings (other duplicate copies
---- and trait impls as entries of their own), duplicate notes and, when it
---- has any, its panic sites (from a fresh `bloaty metrics` run).
+--- copy of a dispatch's shared prefix too), findings (other duplicate copies,
+--- trait impls and a table-driven-test candidate's tests as entries of
+--- their own), duplicate notes and, when it has any, its panic sites (from
+--- a fresh `bloaty metrics` run).
 function M.qflist()
   local buf, path, g, fl = current()
   if not buf then
@@ -219,6 +222,9 @@ function M.qflist()
     for _, f in ipairs(text.by_line(fl)) do
       if (f.note or false) == notes then
         add(path, f.line, notes and text.dup_line(f) or text.finding_note(f, g.path).list)
+        for _, row in ipairs(f.tests and text.table_rows(f, g.path) or {}) do
+          add(row.path, row.line, row.text)
+        end
         local label = f.kind == "duplicate" and "copy" or "impl"
         for _, o in ipairs(f.others) do
           local name = f.kind == "duplicate" and text.fn_name(o.name) or text.short(o.name)
@@ -303,6 +309,25 @@ local function info_lines(fn, g, fl)
   return lines
 end
 
+-- For a test (bloaty doesn't measure them): the table-driven-test
+-- candidates it is a row of, under its name.
+local function covering_lines(row, fl, this)
+  local lines = {}
+  for _, f in ipairs(text.by_line(fl)) do
+    for i, t in ipairs(f.tests or {}) do
+      if t.start_line <= row and row <= t.end_line then
+        if #lines == 0 then
+          table.insert(lines, text.fn_name(t.name))
+        end
+        table.insert(lines, "◂ " .. text.finding_note(f, this).list)
+        table.insert(lines, string.format("row %d/%d", i, #f.tests))
+        break
+      end
+    end
+  end
+  return lines
+end
+
 --- A float for the fn under the cursor: its numbers, shape, panic sites,
 --- findings and whether it's the file's smell culprit. Closes on cursor
 --- move.
@@ -326,10 +351,10 @@ function M.info()
         best = fn
       end
     end
-    if not best then
+    local lines = best and info_lines(best, g, fl) or covering_lines(row, fl, g.path)
+    if #lines == 0 then
       return text.say("no measured fn under the cursor (tests aren't measured)")
     end
-    local lines = info_lines(best, g, fl)
     if modified then
       table.insert(lines, "(unsaved changes: numbers are from the file on disk)")
     end

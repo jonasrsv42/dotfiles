@@ -15,7 +15,7 @@ pub(crate) mod syntax;
 
 use crate::fnmetrics::{FnMetrics, PanicSite, fn_metrics};
 use crate::shape::{self, Lint, Shape};
-use body::{forward_target, is_struct_literal, literal_hashes, logic, token_hashes};
+use body::{forward_target, is_struct_literal, logic, test_body, token_hashes};
 use cfg::{always_built, cfg_attrs, is_checked_test, is_test_fn, is_test_only};
 use macros::{expression_args, token_words};
 use proc_macro2::{TokenStream, TokenTree};
@@ -181,27 +181,21 @@ pub struct FnFact {
     /// (measured fns only).
     pub allowed: Vec<Lint>,
     /// A test fn as written (`TestFn`).
-    #[allow(
-        dead_code,
-        reason = "read by the table-driven-test findings, next step"
-    )]
     pub test_fn: Option<TestFn>,
 }
 
 /// A `#[test]`-like fn without params (`cfg::is_test_fn`): what tells tests
-/// apart that could be one table-driven test.
-#[allow(
-    dead_code,
-    reason = "read by the table-driven-test findings, next step"
-)]
+/// apart that could be one table-driven test (`findings::parametrize`).
 pub struct TestFn {
     /// The inline `mod`s it sits in (its scope within the file).
     pub scope: Vec<String>,
     /// Its attributes other than docs, as text (`should_panic`,
     /// `tokio::test (flavor = "multi_thread")`).
     pub attrs: Vec<String>,
-    /// `body::literal_hashes` of the body.
-    pub literals: Vec<u64>,
+    /// The body's literals, in order (nested items included).
+    pub literals: Vec<body::Literal>,
+    /// The body's lines after its opening brace's (`body::TestBody`).
+    pub lines: usize,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -519,15 +513,20 @@ impl Visitor<'_> {
         let hashed = self.fn_stack.len() < 3 && !is_struct_literal(s.block);
         // Tokenized once, for the body hash and a test's literals.
         let tokens = (hashed || test).then(|| s.block.to_token_stream());
-        let test_fn = test.then(|| TestFn {
-            scope: self.inline_path.clone(),
-            attrs: s
-                .attrs
-                .iter()
-                .filter(|a| !a.path().is_ident("doc"))
-                .map(|a| compact(&a.meta))
-                .collect(),
-            literals: literal_hashes(tokens.clone().unwrap_or_default()),
+        let body_line = s.block.brace_token.span.open().start().line;
+        let test_fn = test.then(|| {
+            let b = test_body(tokens.clone().unwrap_or_default(), body_line);
+            TestFn {
+                scope: self.inline_path.clone(),
+                attrs: s
+                    .attrs
+                    .iter()
+                    .filter(|a| !a.path().is_ident("doc"))
+                    .map(|a| compact(&a.meta))
+                    .collect(),
+                literals: b.literals,
+                lines: b.lines,
+            }
         });
         let forwards_to = match s.kind {
             // Trait impls often *must* delegate (Display, From, Deref...).
@@ -550,7 +549,7 @@ impl Visitor<'_> {
             exempt,
             cfgs,
             signature: Signature::new(s.sig, s.block, s.owner),
-            body_line: s.block.brace_token.span.open().start().line,
+            body_line,
             logic: logic(s.sig, s.block),
             forwards_to,
             body_hash: hashed.then(|| token_hashes(tokens.unwrap_or_default())),

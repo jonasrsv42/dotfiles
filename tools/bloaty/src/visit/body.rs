@@ -2,8 +2,10 @@
 //! duplicate detection, a struct literal.
 
 use super::BodyHash;
+use super::macros::EXPRESSION_MACROS;
 use super::syntax::compact;
 use proc_macro2::{Delimiter, TokenStream, TokenTree};
+use std::collections::HashSet;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use syn::{Block, Expr, FnArg, Pat, Stmt};
@@ -286,25 +288,161 @@ pub(crate) fn token_hashes(tokens: TokenStream) -> BodyHash {
     }
 }
 
-/// Hashes of the literals among `tokens`, in order: where bodies with the
-/// same `names` hash differ.
-pub(super) fn literal_hashes(tokens: TokenStream) -> Vec<u64> {
-    fn walk(ts: TokenStream, out: &mut Vec<u64>) {
-        for tt in ts {
-            match tt {
-                TokenTree::Group(g) => walk(g.stream(), out),
-                TokenTree::Literal(l) => {
-                    let mut h = DefaultHasher::new();
-                    l.to_string().hash(&mut h);
-                    out.push(h.finish());
+/// A literal of a test body, as a column of a table would hold it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Literal {
+    /// Its text, hashed: `1` and `1_u8` differ.
+    pub text: u64,
+    pub kind: LitKind,
+    /// Data a table could hold: not a tuple index (`p.0`), an inline
+    /// snapshot (`@"…"`, insta) or input of an opaque macro (any macro
+    /// outside `macros::EXPRESSION_MACROS`, and everything inside one:
+    /// `include_str!("a")`, `str![[".."]]`, `quote!{..}`).
+    pub data: bool,
+}
+
+/// What a literal is, as written: string, byte string, C string, char,
+/// byte, integer or float, with a number's suffix. Literals of different
+/// kinds can't share a table column; raw and plain strings can (`r"a\b"`
+/// and `"ab"` are both `&str`).
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum LitKind {
+    Str,
+    ByteStr,
+    CStr,
+    Char,
+    Byte,
+    /// With its suffix (`""` when none).
+    Int(&'static str),
+    Float(&'static str),
+}
+
+const SUFFIXES: [&str; 14] = [
+    "u8", "u16", "u32", "u64", "u128", "usize", "i8", "i16", "i32", "i64", "i128", "isize", "f32",
+    "f64",
+];
+
+impl LitKind {
+    fn of(text: &str) -> LitKind {
+        match text.as_bytes() {
+            [b'"', ..] | [b'r', b'"' | b'#', ..] => LitKind::Str,
+            [b'b', b'"' | b'r', ..] => LitKind::ByteStr,
+            [b'c', b'"' | b'r', ..] => LitKind::CStr,
+            [b'\'', ..] => LitKind::Char,
+            [b'b', b'\'', ..] => LitKind::Byte,
+            _ => {
+                // `0x1f32` is a hex number, not one suffixed f32.
+                let radix = text.len() > 1 && matches!(&text[..2], "0x" | "0o" | "0b");
+                let suffix = SUFFIXES
+                    .into_iter()
+                    .filter(|s| !(radix && s.starts_with('f')))
+                    .find(|s| text.ends_with(s))
+                    .unwrap_or("");
+                let digits = &text[..text.len() - suffix.len()];
+                let float = suffix.starts_with('f') || (!radix && digits.contains(['.', 'e', 'E']));
+                if float {
+                    LitKind::Float(suffix)
+                } else {
+                    LitKind::Int(suffix)
                 }
-                TokenTree::Ident(_) | TokenTree::Punct(_) => {}
             }
         }
     }
-    let mut out = Vec::new();
-    walk(tokens, &mut out);
-    out
+}
+
+/// A test body as a table row would replace it: its literals in order and
+/// its lines.
+pub struct TestBody {
+    pub literals: Vec<Literal>,
+    /// Lines after `body_line` (the opening brace's) on which a token
+    /// starts or a delimiter closes: code lines, except those wholly inside
+    /// a multi-line literal. Doc comments are skipped (`///` inside a body
+    /// is no data either).
+    pub lines: usize,
+}
+
+/// The literals and lines of a test body's `tokens` (nested items
+/// included in both).
+pub(super) fn test_body(tokens: TokenStream, body_line: usize) -> TestBody {
+    fn is_doc(tt: Option<&TokenTree>) -> bool {
+        let Some(TokenTree::Group(g)) = tt else {
+            return false;
+        };
+        let first = g.stream().into_iter().next();
+        g.delimiter() == Delimiter::Bracket
+            && matches!(first, Some(TokenTree::Ident(i)) if i == "doc")
+    }
+    fn punct(tt: Option<&TokenTree>, c: char) -> bool {
+        matches!(tt, Some(TokenTree::Punct(p)) if p.as_char() == c)
+    }
+    /// `name!` right before `tokens[i]` (a group): a macro invocation, and
+    /// whether its tokens are opaque (`macros::EXPRESSION_MACROS` aren't).
+    fn opaque_macro(tokens: &[TokenTree], i: usize) -> bool {
+        // Keywords before a `!` negate: `return !(x)`.
+        const NEGATING: &[&str] = &[
+            "return", "break", "in", "if", "while", "match", "else", "yield",
+        ];
+        let (Some(TokenTree::Punct(bang)), Some(TokenTree::Ident(name))) =
+            (tokens.get(i.wrapping_sub(1)), tokens.get(i.wrapping_sub(2)))
+        else {
+            return false;
+        };
+        let name = name.to_string();
+        bang.as_char() == '!'
+            && !NEGATING.contains(&name.as_str())
+            && !EXPRESSION_MACROS.contains(&name.as_str())
+    }
+    /// `opaque`: inside an opaque macro's tokens, whose literals are its
+    /// input, not data.
+    fn walk(ts: TokenStream, opaque: bool, lines: &mut HashSet<usize>, out: &mut Vec<Literal>) {
+        let tokens: Vec<TokenTree> = ts.into_iter().collect();
+        let mut i = 0;
+        while i < tokens.len() {
+            let at = |k: usize| tokens.get(k);
+            // `#[doc = ".."]` / `#![doc = ".."]`: comments, not code.
+            if punct(at(i), '#') {
+                let bang = usize::from(punct(at(i + 1), '!'));
+                if is_doc(at(i + 1 + bang)) {
+                    i += 2 + bang;
+                    continue;
+                }
+            }
+            match &tokens[i] {
+                TokenTree::Group(g) => {
+                    lines.insert(g.span_open().start().line);
+                    lines.insert(g.span_close().start().line);
+                    let inner = opaque || opaque_macro(&tokens, i);
+                    walk(g.stream(), inner, lines, out);
+                }
+                TokenTree::Literal(l) => {
+                    lines.insert(l.span().start().line);
+                    let text = l.to_string();
+                    let prev = i.checked_sub(1).and_then(at);
+                    // A lone `.` (not `..`) before digits: a tuple index.
+                    let field = punct(prev, '.')
+                        && !(i >= 2 && punct(at(i - 2), '.'))
+                        && text.bytes().all(|b| b.is_ascii_digit());
+                    let mut h = DefaultHasher::new();
+                    text.hash(&mut h);
+                    out.push(Literal {
+                        text: h.finish(),
+                        kind: LitKind::of(&text),
+                        data: !(opaque || field || punct(prev, '@')),
+                    });
+                }
+                tt => {
+                    lines.insert(tt.span().start().line);
+                }
+            }
+            i += 1;
+        }
+    }
+    let (mut lines, mut literals) = (HashSet::new(), Vec::new());
+    walk(tokens, false, &mut lines, &mut literals);
+    TestBody {
+        literals,
+        lines: lines.into_iter().filter(|&l| l > body_line).count(),
+    }
 }
 
 pub(super) fn is_struct_literal(block: &Block) -> bool {

@@ -200,6 +200,7 @@ fn check_findings(o: &Outputs, c: &mut Checked) {
         "single_impl_trait",
         "long_fn",
         "test_heavy",
+        "parametrize",
         "pass_through",
     ];
     let mut per_kind: HashMap<&str, u64> = HashMap::new();
@@ -216,6 +217,9 @@ fn check_findings(o: &Outputs, c: &mut Checked) {
         c.expect(KINDS.contains(&kind), || format!("finding kind {kind}"));
         if kind == "duplicate" {
             check_duplicate(f, c);
+        }
+        if kind == "parametrize" {
+            check_parametrize(f, u(&o.findings["thresholds"]["min_dup"]), c);
         }
         let (s, l, e) = (u(&f["start_line"]), u(&f["line"]), u(&f["end_line"]));
         c.expect(s <= l && l <= e, || {
@@ -283,6 +287,50 @@ fn check_duplicate(f: &Value, c: &mut Checked) {
         one_sig != differs && (rule == "signatures") == differs,
         || format!("{id}: one signature {one_sig}, differs {differs}, rule {rule}"),
     );
+}
+
+/// A table-driven-test candidate: its tests (the finding's own first, one
+/// file, test code), the threshold, literals that differ, its lines.
+fn check_parametrize(f: &Value, min_dup: u64, c: &mut Checked) {
+    let id = format!("parametrize {} {}", f["file"], f["line"]);
+    let tests = arr(&f["tests"]);
+    let lines: Vec<u64> = tests.iter().map(|t| u(&t["lines"])).collect();
+    let enough = tests.len() >= 3 || (tests.len() == 2 && lines.iter().all(|&l| l >= min_dup));
+    c.expect(enough, || {
+        format!("{id}: {} tests of {lines:?} lines", tests.len())
+    });
+    c.expect(
+        tests
+            .first()
+            .is_some_and(|t| t["line"] == f["line"] && t["file"] == f["file"]),
+        || format!("{id}: not tests[0]"),
+    );
+    c.expect(tests.iter().all(|t| t["file"] == f["file"]), || {
+        format!("{id}: tests in several files")
+    });
+    c.expect(f["category"] == "test", || format!("{id}: not test code"));
+    // A name written twice is cfg variants (at most one compiles).
+    let mut names: Vec<&str> = tests
+        .iter()
+        .map(|t| t["name"].as_str().unwrap_or(""))
+        .collect();
+    names.sort_unstable();
+    names.dedup();
+    c.expect(names.len() == tests.len(), || format!("{id}: names repeat"));
+    // `identical` pairs tests up: never a lone one; all of them only with
+    // two bodies twice or more (some literal differs).
+    let identical = tests.iter().filter(|t| t["identical"] == true).count();
+    c.expect(
+        identical != 1 && (identical < tests.len() || tests.len() >= 4),
+        || format!("{id}: {identical} identical"),
+    );
+    let (differ, of) = (u(&f["literals"]["differ"]), u(&f["literals"]["of"]));
+    c.expect(1 <= differ && differ <= of, || {
+        format!("{id}: literals {differ} of {of}")
+    });
+    c.expect(u(&f["lines"]) == lines.iter().sum::<u64>(), || {
+        format!("{id}: lines {} != its tests' {lines:?}", f["lines"])
+    });
 }
 
 /// The first fn with the greatest `key` (bloaty's tie rule).

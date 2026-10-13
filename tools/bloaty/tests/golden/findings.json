@@ -274,14 +274,119 @@
       "name": "plan",
       "path": "<ws>/core/src/hot.rs",
       "start_line": 10
+    },
+    {
+      "category": "test",
+      "crate": "fxcore",
+      "detail": "2 tests differ only in 5 of 14 literals, 8 lines each: one test over a table (or a helper taking them)",
+      "end_line": 89,
+      "file": "core/tests/table.rs",
+      "kind": "parametrize",
+      "line": 81,
+      "lines": 16,
+      "literals": {
+        "differ": 5,
+        "of": 14
+      },
+      "name": "sums_pairs",
+      "path": "<ws>/core/tests/table.rs",
+      "start_line": 80,
+      "tests": [
+        {
+          "crate": "fxcore",
+          "end_line": 89,
+          "file": "core/tests/table.rs",
+          "identical": false,
+          "line": 81,
+          "lines": 8,
+          "name": "sums_pairs",
+          "path": "<ws>/core/tests/table.rs",
+          "start_line": 80
+        },
+        {
+          "crate": "fxcore",
+          "end_line": 100,
+          "file": "core/tests/table.rs",
+          "identical": false,
+          "line": 92,
+          "lines": 8,
+          "name": "sums_triples",
+          "path": "<ws>/core/tests/table.rs",
+          "start_line": 91
+        }
+      ]
+    },
+    {
+      "category": "test",
+      "crate": "fxcore",
+      "detail": "4 tests differ only in 2 of 4 literals, 2 lines each, 2 identical: one test over a table (or a helper taking them)",
+      "end_line": 13,
+      "file": "core/tests/table.rs",
+      "kind": "parametrize",
+      "line": 11,
+      "lines": 8,
+      "literals": {
+        "differ": 2,
+        "of": 4
+      },
+      "name": "clamps_below",
+      "path": "<ws>/core/tests/table.rs",
+      "start_line": 10,
+      "tests": [
+        {
+          "crate": "fxcore",
+          "end_line": 13,
+          "file": "core/tests/table.rs",
+          "identical": false,
+          "line": 11,
+          "lines": 2,
+          "name": "clamps_below",
+          "path": "<ws>/core/tests/table.rs",
+          "start_line": 10
+        },
+        {
+          "crate": "fxcore",
+          "end_line": 18,
+          "file": "core/tests/table.rs",
+          "identical": false,
+          "line": 16,
+          "lines": 2,
+          "name": "clamps_above",
+          "path": "<ws>/core/tests/table.rs",
+          "start_line": 15
+        },
+        {
+          "crate": "fxcore",
+          "end_line": 23,
+          "file": "core/tests/table.rs",
+          "identical": true,
+          "line": 21,
+          "lines": 2,
+          "name": "keeps_inside",
+          "path": "<ws>/core/tests/table.rs",
+          "start_line": 20
+        },
+        {
+          "crate": "fxcore",
+          "end_line": 28,
+          "file": "core/tests/table.rs",
+          "identical": true,
+          "line": 26,
+          "lines": 2,
+          "name": "keeps_inside_again",
+          "path": "<ws>/core/tests/table.rs",
+          "start_line": 25
+        }
+      ]
     }
   ],
   "hidden_pub": 0,
   "root": "<ws>",
-  "schema": 11,
+  "schema": 12,
   "shown": {
     "duplicate": 2,
     "long_fn": 1,
+    "parametrize": 2,
     "single_impl_trait": 1,
     "unused": 1
   },
@@ -293,6 +398,7 @@
   "totals": {
     "duplicate": 2,
     "long_fn": 1,
+    "parametrize": 2,
     "single_impl_trait": 1,
     "unused": 1
   },

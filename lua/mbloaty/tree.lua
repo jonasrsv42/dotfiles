@@ -125,6 +125,27 @@ function M.explain(state)
       end
     end
   end
+  -- Table-driven-test candidates: a file's with their tests, a
+  -- directory's counted.
+  local tables = r.tables and r.tables[key]
+  if tables and node.type == "directory" then
+    table.insert(lines, string.format("%d table-driven-test %s (bloaty findings --kind parametrize %s)",
+      tables, tables == 1 and "candidate" or "candidates", node.path))
+  elseif tables then
+    for _, f in ipairs(text.by_line(r.findings[key])) do
+      if f.tests then
+        local names = {}
+        for i, t in ipairs(f.tests) do
+          if i > 5 then
+            table.insert(names, "+" .. (#f.tests - 5))
+            break
+          end
+          table.insert(names, text.fn_name(t.name))
+        end
+        table.insert(lines, text.finding_note(f, key).list .. " · " .. table.concat(names, ", "))
+      end
+    end
+  end
   text.say(table.concat(lines, "\n"))
 end
 

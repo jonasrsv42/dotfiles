@@ -179,6 +179,7 @@ local function test_column()
   eq(column("core/src", "directory"), { "•", "●", "  811 " }, "column: directory sums and inherits hot")
   eq(column(""), { "•", " ", "  889 " }, "column: root row never gets a dot")
   eq(column("Cargo.toml"), {}, "column: nothing on non-Rust files")
+  eq(column("core/tests/table.rs"), {}, "column: no mark for table-driven-test candidates (test code)")
 
 end
 
@@ -239,6 +240,12 @@ local function test_lens()
   vim.cmd.edit("core/src/f01.rs")
   eq(marks(), {}, "lens: no marks on a cool file")
 
+  vim.cmd.edit("core/tests/table.rs")
+  eq(marks(), {
+    [11] = "◂ parametrize? 4 tests · 2 literals",
+    [81] = "◂ parametrize? 2 tests · 5 literals",
+  }, "lens: table-driven-test candidates, on each group's first test only")
+
 end
 
 local function test_quickfix()
@@ -288,6 +295,18 @@ local function test_quickfix()
       .. " · same body on different types: a shared helper or a generic impl may fit; often by design",
     "73   copy: Left::twice() · line 73",
   }, "quickfix: duplicate findings with their copies, then notes with their facts")
+
+  local claim = ": one test over a table (or a helper taking them)"
+  eq(qf("core/tests/table.rs"), {
+    "11 parametrize? 4 tests differ only in 2 of 4 literals, 2 lines each, 2 identical" .. claim,
+    "11   row 1/4: clamps_below() · line 11",
+    "16   row 2/4: clamps_above() · line 16",
+    "21   row 3/4: keeps_inside() · line 21 · identical",
+    "26   row 4/4: keeps_inside_again() · line 26 · identical",
+    "81 parametrize? 2 tests differ only in 5 of 14 literals, 8 lines each" .. claim,
+    "81   row 1/2: sums_pairs() · line 81",
+    "92   row 2/2: sums_triples() · line 92",
+  }, "quickfix: a table-driven-test candidate, then each of its tests")
 
   eq(qf("core/src/badarm.rs"), {
     "22 simplify? apply(): cognitive complexity 17 · arm Op::Rebalance 16",
@@ -341,6 +360,29 @@ local function test_explain()
     die("B: dup_b.rs max cognitive\n  want: " .. want .. "\n  got:  " .. said)
   end
   ok("B: max cognitive complexity")
+
+  -- `B` on a test file lists its table-driven-test candidates; on a
+  -- directory, counts them.
+  local function explain(rel, type)
+    local n = #notes
+    tree.explain(vim.tbl_extend("force", state, {
+      tree = { get_node = function() return node(rel, type) end },
+    }))
+    return notes[n + 1] and notes[n + 1].msg or ""
+  end
+  said = explain("core/tests/table.rs")
+  want = "parametrize? 4 tests differ only in 2 of 4 literals, 2 lines each, 2 identical: one test over a table"
+    .. " (or a helper taking them) · clamps_below(), clamps_above(), keeps_inside(), keeps_inside_again()"
+  if not said:find(want, 1, true) then
+    die("B: table.rs candidates\n  want: " .. want .. "\n  got:  " .. said)
+  end
+  ok("B: a file's table-driven-test candidates with their tests")
+  said = explain("core/tests", "directory")
+  want = "2 table-driven-test candidates (bloaty findings --kind parametrize " .. ws .. "/core/tests)"
+  if not said:find(want, 1, true) then
+    die("B: core/tests count\n  want: " .. want .. "\n  got:  " .. said)
+  end
+  ok("B: a directory counts its table-driven-test candidates")
 end
 
 local function test_info()
@@ -387,6 +429,38 @@ local function test_info()
     .. " · same body on different types: a shared helper or a generic impl may fit; often by design",
     "<leader>bi: a duplicate note with its facts")
   vim.api.nvim_win_close(float, true)
+
+  -- <leader>bi on a test (not measured): the findings covering it.
+  vim.cmd.edit("core/tests/table.rs")
+  vim.api.nvim_win_set_cursor(0, { 17, 0 })
+  lens.info()
+  float = nil
+  wait("the test's info float", function()
+    for _, w in ipairs(vim.api.nvim_list_wins()) do
+      if vim.api.nvim_win_get_config(w).relative ~= "" then
+        float = w
+        return true
+      end
+    end
+  end)
+  lines = vim.api.nvim_buf_get_lines(vim.api.nvim_win_get_buf(float), 0, -1, false)
+  eq(lines, {
+    "clamps_above()",
+    "◂ parametrize? 4 tests differ only in 2 of 4 literals, 2 lines each, 2 identical: one test over a table"
+      .. " (or a helper taking them)",
+    "row 2/4",
+  }, "<leader>bi on a test: the candidate covering it and its row")
+  vim.api.nvim_win_close(float, true)
+
+  -- ...but not on a test helper (no candidate has it as a row).
+  local before = #notes
+  vim.api.nvim_win_set_cursor(0, { 4, 0 })
+  lens.info()
+  wait("the helper's message", function()
+    return #notes > before
+  end)
+  eq(notes[#notes].msg, "no measured fn under the cursor (tests aren't measured)",
+    "<leader>bi on a test helper: nothing claimed")
 end
 
 local function test_toggles()

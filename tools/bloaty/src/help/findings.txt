@@ -64,6 +64,43 @@ Kinds, in the order worth working through:
   test-heavy         files whose inline tests are >3x their code (and >= 200):
                      look for repeated setup to share and cases to merge
                      into table-driven tests.
+  parametrize        tests of one scope (file and inline mod), with the
+                     same attributes (`should_panic`, `ignore`,
+                     `tokio::test(..)` as written) and signature and
+                     distinct names (a name written twice, as in
+                     cfg-exclusive mods, is variants of which at most one
+                     compiles), whose bodies are identical except for
+                     literals, and some literal differs: one test over a
+                     table of those literals (or a helper taking them)
+                     could replace them. Rows of one table have, per
+                     literal position, one kind (string, byte string, C
+                     string, char, byte, integer or float, a number's
+                     suffix as written: `'a'` and `"a"`, `1u8` and `1i64`
+                     can't share a column; raw and plain strings can) and
+                     equal text where the literal isn't data: a tuple
+                     index (`p.0`), an inline snapshot (`@"…"`), or
+                     anything inside a macro other than the format!/
+                     assert!/vec!-like and log/tracing macros read as
+                     expressions (that macro's input: `include_str!`,
+                     `quote!`, insta's and snapbox's snapshot macros);
+                     doc comments in a body aren't literals. At
+                     least 3 tests at any size, or a pair with --min-dup
+                     lines after the signature in each. A test's lines are
+                     those after its signature on which a token starts
+                     (lines wholly inside a multi-line string don't count;
+                     nested items do, as their literals do). Facts:
+                     `tests` (each with its `lines` and `identical`: all
+                     its literals are another test's), `literals` {differ,
+                     of}: literal positions that differ, of all. Tests
+                     with params (rstest, test_case) aren't tests as
+                     written. Limits: tests in item macros whose body
+                     parses as items are read as written, other
+                     macro-written tests aren't seen; `true`/`false` are
+                     names, not literals, so tests differing only in
+                     booleans don't group; tests in different files or
+                     mods never group; a literal that isn't data in ways
+                     syntax can't tell still counts (an expression macro's
+                     format string, an array length).
   pass-through       (only with --kind pass-through) private-ish fns whose
                      body is one call passing their inputs to another
                      workspace fn (no claim when several workspace fns
@@ -73,14 +110,15 @@ Within a kind, impl code ranks before test code and private before pub;
 duplicate notes come last. `category` says impl or test (a duplicate is
 impl if any copy is). `lines` counts code lines: the item's own (plus its
 impl blocks for unused types), the largest copy's lines after its
-signature (at least 1) for duplicates, test lines for test-heavy.
+signature (at least 1) for duplicates, test lines for test-heavy, the
+tests' lines (as above) for parametrize.
 `lines_saved` is at most what keeping one copy saves.
 
 JSON per finding: `path` (absolute) and `file` (relative to `root`), `line`
 (the name, to jump to), `start_line`..=`end_line` (the whole item with docs
-and attributes, to delete), `crate`, and for some kinds `impls`/`copies`
-with the same fields (`copies[0]` is the finding itself). `totals` per kind
-say what --top cut.
+and attributes, to delete), `crate`, and for some kinds
+`impls`/`copies`/`tests` with the same fields (`copies[0]` and `tests[0]`
+are the finding itself). `totals` per kind say what --top cut.
 
 `pub` items of publishable libraries (anything not `publish = false`) are
 left out of unused, single-impl-trait and pass-through, since code outside

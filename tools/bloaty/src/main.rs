@@ -274,7 +274,7 @@ fn run(max_depth: usize) -> i32 {
 /// Version of the `--json` output, its first field `schema`. Bumped when a
 /// field consumers rely on changes or appears (the Neovim integration
 /// refuses older output rather than misread it).
-const SCHEMA: u32 = 11;
+const SCHEMA: u32 = 12;
 
 #[derive(serde::Serialize)]
 struct Versioned<'a, T> {
@@ -414,6 +414,13 @@ mod tests {
                     shape::MIN_ARMS,
                     shape::SMALL_ARM_LINES,
                     shape::SMALL_ARM_COMPLEXITY
+                ),
+            ),
+            (
+                &findings,
+                format!(
+                    "At least {} tests at any size, or a pair with --min-dup lines",
+                    crate::findings::parametrize::MIN_PARAMETRIZE_TESTS
                 ),
             ),
             (

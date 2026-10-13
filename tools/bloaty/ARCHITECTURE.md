@@ -73,7 +73,7 @@ Rust (src/):
 - `findings/mod.rs`: `Finding`, `Kind`, `Cx` (reference counts, uncertain
   crates), orchestration, `report`, `render`; one file per kind:
   `duplicate.rs`, `unused.rs`, `single_impl_trait.rs`, `pass_through.rs`,
-  `long_fn.rs`, `test_heavy.rs`. Duplicates also have
+  `long_fn.rs`, `test_heavy.rs`, `parametrize.rs`. Duplicates also have
   `duplicate/policy.rs` (`Rule`: a flat table from a group's facts to its
   tier and hint).
 - `metrics.rs`: the `metrics` command: every measured fn, its shape rows
@@ -159,7 +159,7 @@ Neovim (lua/mbloaty/):
   cognitive complexity; only on the fn, only below the ceiling (2 × bar:
   80 lines, cognitive complexity 30).
 - **Findings kinds.** duplicate, unused, single_impl_trait, long_fn,
-  test_heavy, pass_through (opt-in). long_fn counts lines as the smell
+  test_heavy, parametrize, pass_through (opt-in). long_fn counts lines as the smell
   score does (`rollup::lines_excuse`): what a table, dispatch or allowed
   lint excuses under `--long-fn` isn't reported but counted in `excused`
   {kind: {excuse: n}}. Name-based, hints not proof; `pub`
@@ -186,6 +186,34 @@ Neovim (lua/mbloaty/):
   identical / same shape → finding. Hints are advice text. Notes are
   counted apart (`duplicate_notes`). `excluded_duplicates` counts groups
   substance removed (only groups that were duplicates by text size).
+- **Table-driven-test candidates (`parametrize`): an exact claim.** Tests
+  as written (`visit::TestFn`: a last-segment-`test` attribute, no params)
+  of one scope (file + inline `mod` path) with the same attributes as text
+  (`should_panic`, `ignore`, `tokio::test(..)`), the same `Signature` and
+  distinct names (a repeated name is cfg variants: at most one compiles),
+  whose bodies have one `BodyHash.names` (literals erased) and some
+  literal position that differs: "these N bodies are identical except for
+  k literals". Tests also group by their columns (`parametrize::columns`):
+  per position the literal's kind (`body::Literal`, `LitKind`:
+  string/byte string/C string/char/byte/integer/float and a number's
+  suffix as written, raw and plain strings alike) and, where it isn't
+  data (`data` false: a tuple index after a lone `.`, a literal after
+  `@`, insta's inline snapshot, and every literal inside a macro outside
+  `EXPRESSION_MACROS`, nested ones included: the macro rule, its input),
+  its text; so tests of other kinds or
+  other structure split off rather than spoil a group. `#[doc]`
+  attributes inside a body are skipped. Kept at N >=
+  `MIN_PARAMETRIZE_TESTS` (3) at any size, or a pair with `--min-dup`
+  lines each; a test's lines (`TestBody.lines`) are those after its
+  opening brace's on which a token starts or a delimiter closes, so lines
+  wholly inside a multi-line string don't count; nested items count in
+  lines and literals alike. Facts: `tests` (each with its `lines` and
+  `identical`: its literals equal another test's), `literals` {differ,
+  of}. Test code: no smell level, no tree `•`; the lens marks the group's
+  first test, the quickfix lists each test as a row, `B` lists a file's
+  and counts a directory's, `<leader>bi` on a test shows the candidates
+  it is a row of. Wording comes from the finding's `detail` (Lua builds
+  only the lens's short form).
 
 ## Limits
 
@@ -256,6 +284,20 @@ bloaty's; when a claim would need them, bloaty makes none (counted in
 - **Signatures and types** compare as written text: lifetimes ignored
   (outside `for<..>`), aliases differ from their types, `Self` from the
   concrete type.
+- **parametrize** compares tests as written within one scope: tests in
+  item macros whose body parses as items (read as written, like other
+  items) are seen; tests written by other macros (`macro_rules!`
+  templates, rstest/test_case expansions) aren't; `true`/`false` are
+  identifiers to the tokenizer, not literals, so tests differing only in
+  booleans don't group; tests in different files or inline `mod`s (or with
+  different attributes, `#[ignore]` included) never group; a literal's
+  text and kind are compared, not its value (`1` vs `0x1` differ).
+  Literals inside opaque macros (not `EXPRESSION_MACROS`) are input, not
+  data. What syntax can't tell from data still counts as data: the format
+  strings of expression macros (`format!("{:>5}", x)`; a differing
+  assertion message is the same token, and tables carry those well),
+  array lengths and const generic arguments (`[0u8; 4]`), literals in
+  patterns.
 - Duplicates: names aren't resolved: same-named items in different files
   or crates (consts, helpers, imported types) count as the same, so equal
   text can be different code. Signatures and cfgs compare as normalized

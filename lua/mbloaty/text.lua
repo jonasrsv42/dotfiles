@@ -1,6 +1,6 @@
 -- bloaty's words: the formatters shared by the tree's `B` explain
 -- (mbloaty.tree), the lens, its quickfix list and its float
--- (mbloaty.lens). Pure functions of bloaty's JSON (schema 11).
+-- (mbloaty.lens). Pure functions of bloaty's JSON (schema 12).
 
 local M = {}
 
@@ -305,6 +305,25 @@ function M.dup_line(f)
   return head .. " · " .. M.dup_facts(f.dup)
 end
 
+-- `1 literal`, `3 literals`.
+local function count(n, word)
+  return n == 1 and ("1 " .. word) or (n .. " " .. word .. "s")
+end
+
+-- A candidate's tests as list entries, each `{ path, line, text }`:
+-- "  row 2/5: clamps_above() · line 16" (`· identical` for a copy).
+function M.table_rows(f, this)
+  local out = {}
+  for i, t in ipairs(f.tests) do
+    table.insert(out, {
+      path = t.path, line = t.line,
+      text = string.format("  row %d/%d: %s · %s%s", i, #f.tests, M.fn_name(t.name), M.where(t, this),
+        t.identical and " · identical" or ""),
+    })
+  end
+  return out
+end
+
 -- A finding as a note: { line, verdict, ev, list }.
 function M.finding_note(f, this)
   local note = { line = f.line }
@@ -333,6 +352,14 @@ function M.finding_note(f, this)
     local o = f.others[1]
     note.verdict = o and "only impl:" or "no impls"
     note.ev = o and M.short(o.name) or nil
+  elseif f.kind == "parametrize" then
+    -- Lens: `parametrize? 5 tests · 3 literals`; lists: the whole claim
+    -- ("5 tests differ only in 3 of 12 literals, 4 lines each: ...").
+    note.verdict = "parametrize?"
+    note.ev = string.format("%d tests · %s", #f.tests, count(f.literals.differ, "literal"))
+    -- bloaty's own sentence: one source of wording.
+    note.list = "parametrize? " .. (f.detail or "")
+    return note
   else
     note.verdict = f.kind
   end

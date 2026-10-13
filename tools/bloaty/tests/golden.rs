@@ -20,7 +20,8 @@
 //! (ordinary code, so ranks mean something: warm needs >= 20 scored files,
 //! and 4 warm slots >= 31), lib.rs (`#[cfg(test)]` module, a `#[path]` test
 //! module with a child, a module declared from test and impl code),
-//! shared.rs (clones), tests/it.rs (whole-test file), build.rs and fxapp's
+//! shared.rs (clones), tests/it.rs (whole-test file), tests/table.rs
+//! (table-driven-test candidates and near misses), build.rs and fxapp's
 //! examples/ (support: measured, never scored).
 
 mod common;
@@ -70,7 +71,7 @@ fn group<'a>(summary: &'a Value, name: &str) -> &'a Value {
 #[test]
 fn summary_by_file() {
     let v = Ws::new("summary").run(&["summary", ".", "--by", "file", "--json"]);
-    assert_eq!(v["schema"], 11);
+    assert_eq!(v["schema"], 12);
     // What the fixture is for: each role still plays out.
     let level = |name: &str| -> Value { group(&v, name)["smell"]["level"].clone() };
     assert_eq!(level("core/src/hot.rs"), "hot");
@@ -118,14 +119,20 @@ fn summary_by_file() {
 #[test]
 fn findings() {
     let v = Ws::new("findings").run(&["findings", ".", "--json", "--top", "0"]);
-    assert_eq!(v["schema"], 11);
+    assert_eq!(v["schema"], 12);
     let kinds: Vec<&str> = v["findings"]
         .as_array()
         .unwrap()
         .iter()
         .map(|f| f["kind"].as_str().unwrap())
         .collect();
-    for kind in ["duplicate", "unused", "single_impl_trait", "long_fn"] {
+    for kind in [
+        "duplicate",
+        "unused",
+        "single_impl_trait",
+        "long_fn",
+        "parametrize",
+    ] {
         assert!(kinds.contains(&kind), "no {kind} in {kinds:?}");
     }
     // Duplicates: (copies, rule, tier, category).
@@ -162,13 +169,44 @@ fn findings() {
             ),
         ]
     );
+    // Table-driven-test candidates (tests/table.rs): the group of four and
+    // the long pair in `mod windows`; the short pair, the ignored pair and
+    // the should_panic variant aren't.
+    let tables: Vec<(&str, Vec<&str>)> = v["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|f| f["kind"] == "parametrize")
+        .map(|f| {
+            let tests = f["tests"].as_array().unwrap();
+            (
+                f["name"].as_str().unwrap(),
+                tests.iter().map(|t| t["name"].as_str().unwrap()).collect(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        tables,
+        [
+            ("sums_pairs", vec!["sums_pairs", "sums_triples"]),
+            (
+                "clamps_below",
+                vec![
+                    "clamps_below",
+                    "clamps_above",
+                    "keeps_inside",
+                    "keeps_inside_again"
+                ]
+            ),
+        ]
+    );
     golden("findings", &v);
 }
 
 #[test]
 fn metrics() {
     let v = Ws::new("metrics").run(&["metrics", ".", "--json"]);
-    assert_eq!(v["schema"], 11);
+    assert_eq!(v["schema"], 12);
     let sites: Vec<&str> = v["functions"]
         .as_array()
         .unwrap()

@@ -1644,20 +1644,31 @@
       "name": "core/tests/it.rs",
       "path": "<ws>/core/tests/it.rs",
       "test": 11
+    },
+    {
+      "blank": 31,
+      "comment": 16,
+      "crate": "fxcore",
+      "doc": 0,
+      "files": 1,
+      "impl": 0,
+      "name": "core/tests/table.rs",
+      "path": "<ws>/core/tests/table.rs",
+      "test": 175
     }
   ],
   "hidden": 0,
   "root": "<ws>",
-  "schema": 11,
+  "schema": 12,
   "sort": "impl",
   "test_features": [],
   "total": {
-    "blank": 76,
-    "comment": 9,
+    "blank": 107,
+    "comment": 25,
     "doc": 43,
-    "files": 39,
+    "files": 40,
     "impl": 889,
     "name": "total",
-    "test": 76
+    "test": 251
   }
 }
