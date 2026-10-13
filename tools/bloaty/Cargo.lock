@@ -254,7 +254,7 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 [[package]]
 name = "parsicomb"
 version = "0.1.0"
-source = "git+https://github.com/jonasrsv42/parsicomb?rev=9344c12abbfbd17a11c9871687352ab56cd36b6d#9344c12abbfbd17a11c9871687352ab56cd36b6d"
+source = "git+https://github.com/jonasrsv42/parsicomb?rev=9678f4b677ae0f0ce3605fd05e87d3f8eab1efc0#9678f4b677ae0f0ce3605fd05e87d3f8eab1efc0"
 
 [[package]]
 name = "proc-macro2"

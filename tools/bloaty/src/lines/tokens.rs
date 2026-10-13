@@ -65,7 +65,7 @@ pub(super) fn tokens(src: &str) -> impl Iterator<Item = Token> + '_ {
     let head = optional(tag("\u{feff}")).and(optional(shebang().with_position()));
     // Both parts are optional, so this never fails.
     let ((_, shebang), mut cursor) = head.parse(start).unwrap_or(((None, None), start));
-    let token = token();
+    let token = token().with_position();
     // token*, streamed: collecting it with `many` made lexing 2x slower.
     let rest = std::iter::from_fn(move || {
         if cursor.eos() {
@@ -73,9 +73,7 @@ pub(super) fn tokens(src: &str) -> impl Iterator<Item = Token> + '_ {
         }
         let parsed = token.parse(cursor);
         debug_assert!(parsed.is_ok(), "no token at {}", cursor.position());
-        let (kind, next) = parsed.ok()?;
-        // Not `token().with_position()`: ~10% slower.
-        let span = cursor.span_to(next);
+        let ((kind, span), next) = parsed.ok()?;
         cursor = next;
         Some((kind, span))
     });
@@ -87,8 +85,8 @@ pub(super) fn tokens(src: &str) -> impl Iterator<Item = Token> + '_ {
         }
         Token {
             kind,
-            start: span.start,
-            end: span.end,
+            start: span.start(),
+            end: span.end(),
             line: first_line,
             last_line: line,
         }
@@ -97,23 +95,31 @@ pub(super) fn tokens(src: &str) -> impl Iterator<Item = Token> + '_ {
 
 type Cur<'a> = ByteCursor<'a>;
 
-/// A rule with its error wrapped, so the dispatcher's arms share an error
-/// type. It fails only where the whole token does, so wrapping (an
-/// allocation) costs nothing in practice; arms aren't boxed: ~7% faster.
-fn rule<'a, P>(p: P) -> impl Parser<Cursor = Cur<'a>, Output = Kind, Error = ParsicombError<'a>>
-where
-    P: Parser<Cursor = Cur<'a>, Output = Kind> + 'a,
-    P::Error: 'a,
+/// A parser over the source whose error converts into `ParsicombError`
+/// without allocating, as the error of any parsicomb combinator does.
+trait Rule<'a, O>: Parser<Cursor = Cur<'a>, Output = O, Error: Into<ParsicombError<'a>>> {}
+
+impl<'a, O, P> Rule<'a, O> for P where
+    P: Parser<Cursor = Cur<'a>, Output = O, Error: Into<ParsicombError<'a>>>
 {
-    p.map_err(ParsicombError::wrap)
+}
+
+/// A rule with its error converted (without allocating), so the
+/// dispatcher's arms share an error type; arms aren't boxed: ~7% faster.
+fn rule<'a>(
+    p: impl Rule<'a, Kind>,
+) -> impl Parser<Cursor = Cur<'a>, Output = Kind, Error = ParsicombError<'a>> {
+    p.map_err(Into::into)
 }
 
 /// token = space | line comment | block comment | string | char or
 /// lifetime | prefixed literal | ident | punct
 ///
 /// Only the alternatives a token's first byte allows are tried, as in
-/// rustc's lexer: trying each in turn made tokenizing ~30x slower. Every
-/// arm takes at least one character, so `token*` reaches the end.
+/// rustc's lexer: an `or` chain trying each in turn made lexing ~9x
+/// slower, still ~4x with each alternative guarded by its first byte
+/// (parsicomb 9678f4b). Every arm takes at least one character, so
+/// `token*` reaches the end.
 fn token<'a>() -> impl Parser<Cursor = Cur<'a>, Output = Kind, Error = ParsicombError<'a>> {
     let space = || skip_chars_while1(char::is_whitespace, "whitespace").map(|_| Kind::Space);
     let ident = || skip_chars_while1(is_ident, "an identifier").map(|_| Kind::Ident);
@@ -146,35 +152,39 @@ fn token<'a>() -> impl Parser<Cursor = Cur<'a>, Output = Kind, Error = Parsicomb
 
 /// How prefixed literals (and raw identifiers, `r#type`) start. Checking
 /// this before trying them keeps `return`, `crate`.. off three failing
-/// alternatives: ~15% of lexing time on real code.
+/// alternatives: ~13% of lexing time on real code.
 const LITERAL_PREFIXES: &[&str] = &[
     "b\"", "b'", "br\"", "br#", "c\"", "cr\"", "cr#", "r\"", "r#",
 ];
 
-/// shebang = `#!` .. line end, unless spaces then `[` follow the `#!`
-fn shebang<'a>() -> impl Parser<Cursor = Cur<'a>, Output = Kind> {
-    let attribute = skip_chars_while(|c| c.is_whitespace() && c != '\n').and(tag("["));
-    tag("#!")
-        .and(not(attribute))
+/// shebang = not attribute `#!` .. line end, attribute = `#!` spaces `[`
+fn shebang<'a>() -> impl Rule<'a, Kind> {
+    let spaces = skip_chars_while(|c| c.is_whitespace() && c != '\n');
+    let attribute = tag("#!").and(spaces).and(tag("["));
+    not(attribute)
+        .and(tag("#!"))
         .and(skip_while(|b: u8| b != b'\n'))
         .map(|_| Kind::Shebang)
 }
 
-/// line comment = `//` doc? .. line end, doc = `/` not `/` | `!`: `///x`
+/// line comment = `//` doc? .. line end, doc = not `//` `/` | `!`: `///x`
 /// and `//!x` are docs, `////` isn't.
-fn line_comment<'a>() -> impl Parser<Cursor = Cur<'a>, Output = Kind> {
-    let doc = tag("/").and(not(tag("/"))).map(drop).or(tag("!").map(drop));
+fn line_comment<'a>() -> impl Rule<'a, Kind> {
+    let doc = not(tag("//"))
+        .and(tag("/"))
+        .map(drop)
+        .or(tag("!").map(drop));
     tag("//")
         .and(optional(doc))
         .and(skip_while(|b: u8| b != b'\n'))
         .map(|((_, doc), _)| Kind::LineComment { doc: doc.is_some() })
 }
 
-/// block comment = `/*` doc? body, doc = `*` not (`*` | `/`) | `!`: `/**x`
-/// and `/*!x` are docs, `/**/` and `/***` aren't.
-fn block_comment<'a>() -> impl Parser<Cursor = Cur<'a>, Output = Kind> {
-    let doc = tag("*")
-        .and(not(tag("*").or(tag("/"))))
+/// block comment = `/*` doc? body, doc = not (`**` | `*/`) `*` | `!`:
+/// `/**x` and `/*!x` are docs, `/**/` and `/***` aren't.
+fn block_comment<'a>() -> impl Rule<'a, Kind> {
+    let doc = not(tag("**").or(tag("*/")))
+        .and(tag("*"))
         .map(drop)
         .or(tag("!").map(drop));
     tag("/*")
@@ -202,7 +212,7 @@ fn block_body<'a>() -> impl Parser<Cursor = Cur<'a>, Output = (), Error = Parsic
 }
 
 /// string = `"` (plain | `\` byte?)* `"`?
-fn string<'a>() -> impl Parser<Cursor = Cur<'a>, Output = ()> {
+fn string<'a>() -> impl Rule<'a, ()> {
     let plain = skip_while1(|b: u8| !matches!(b, b'"' | b'\\'), "string text");
     let escape = tag("\\").and(optional(byte())).map(drop);
     tag("\"")
@@ -213,13 +223,13 @@ fn string<'a>() -> impl Parser<Cursor = Cur<'a>, Output = ()> {
 
 /// raw string = `r` `#`{n} `"` (plain | not close `"`)* close?, close =
 /// `"` `#`{n}
-fn raw_string<'a>() -> impl Parser<Cursor = Cur<'a>, Output = ()> {
+fn raw_string<'a>() -> impl Rule<'a, ()> {
     let hashes = skip_while(|b: u8| b == b'#')
         .recognize()
         .map(|h: Span| h.len());
     let open = tag("r").and(hashes).and(tag("\"")).map(|((_, n), _)| n);
     open.and_then(|n| {
-        let close = move || tag("\"").and(ntimes(n, tag("#")));
+        let close = move || tag("\"").and(ntimes(tag("#"), n));
         let plain = skip_while1(|b: u8| b != b'"', "string text");
         skip_many(plain.or(not(close()).and(byte()).map(drop)))
             .and(optional(close()))
@@ -230,7 +240,7 @@ fn raw_string<'a>() -> impl Parser<Cursor = Cur<'a>, Output = ()> {
 /// char or lifetime = `'` (escaped | char `'` | ident* `'`?), escaped = `\`
 /// char? not (`'` | newline)* byte?: `'\n'`, `'x'`, `'a`, and `'ab'` closed
 /// as a literal.
-fn char_or_lifetime<'a>() -> impl Parser<Cursor = Cur<'a>, Output = Kind> {
+fn char_or_lifetime<'a>() -> impl Rule<'a, Kind> {
     let escaped = tag("\\")
         .and(optional(char()))
         .and(skip_while(|b: u8| !matches!(b, b'\'' | b'\n')))
@@ -251,7 +261,7 @@ fn char_or_lifetime<'a>() -> impl Parser<Cursor = Cur<'a>, Output = Kind> {
 
 /// prefixed literal = (`b` | `c`)? raw string | (`b` | `c`) string | `b`
 /// char or lifetime
-fn prefixed_literal<'a>() -> impl Parser<Cursor = Cur<'a>, Output = Kind> {
+fn prefixed_literal<'a>() -> impl Rule<'a, Kind> {
     let prefix = || tag("b").or(tag("c"));
     let raw = optional(prefix()).and(raw_string()).map(|_| Kind::Str);
     let string = prefix().and(string()).map(|_| Kind::Str);
@@ -260,7 +270,7 @@ fn prefixed_literal<'a>() -> impl Parser<Cursor = Cur<'a>, Output = Kind> {
 }
 
 /// punct = `||` | `&&` | `==` | `=>` | `..` | `>>=` | any char
-fn punct<'a>() -> impl Parser<Cursor = Cur<'a>, Output = Kind> {
+fn punct<'a>() -> impl Rule<'a, Kind> {
     let joined = tag("||")
         .or(tag("&&"))
         .or(tag("=="))
@@ -271,6 +281,8 @@ fn punct<'a>() -> impl Parser<Cursor = Cur<'a>, Output = Kind> {
 }
 
 /// Exactly `s`.
-fn tag<'a>(s: &'static str) -> impl Parser<Cursor = Cur<'a>> {
+fn tag<'a>(
+    s: &'static str,
+) -> impl Parser<Cursor = Cur<'a>, Output = Span<'a>, Error = ParsicombError<'a>> {
     is_sequence(s.as_bytes())
 }
