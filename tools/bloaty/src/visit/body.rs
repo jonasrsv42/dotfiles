@@ -4,7 +4,6 @@
 use super::BodyHash;
 use super::syntax::compact;
 use proc_macro2::{Delimiter, TokenStream, TokenTree};
-use quote::ToTokens;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use syn::{Block, Expr, FnArg, Pat, Stmt};
@@ -215,11 +214,7 @@ fn is_rooted(e: &Expr, params: &[String]) -> bool {
     }
 }
 
-pub(super) fn body_hashes(block: &Block) -> BodyHash {
-    token_hashes(block.to_token_stream())
-}
-
-/// `body_hashes` of any tokens.
+/// A body's (or any tokens') hashes.
 pub(crate) fn token_hashes(tokens: TokenStream) -> BodyHash {
     const KEYWORDS: &[&str] = &[
         "as", "async", "await", "break", "const", "continue", "else", "enum", "fn", "for", "if",
@@ -289,6 +284,27 @@ pub(crate) fn token_hashes(tokens: TokenStream) -> BodyHash {
         shape: h.shape.finish(),
         names: h.names.finish(),
     }
+}
+
+/// Hashes of the literals among `tokens`, in order: where bodies with the
+/// same `names` hash differ.
+pub(super) fn literal_hashes(tokens: TokenStream) -> Vec<u64> {
+    fn walk(ts: TokenStream, out: &mut Vec<u64>) {
+        for tt in ts {
+            match tt {
+                TokenTree::Group(g) => walk(g.stream(), out),
+                TokenTree::Literal(l) => {
+                    let mut h = DefaultHasher::new();
+                    l.to_string().hash(&mut h);
+                    out.push(h.finish());
+                }
+                TokenTree::Ident(_) | TokenTree::Punct(_) => {}
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(tokens, &mut out);
+    out
 }
 
 pub(super) fn is_struct_literal(block: &Block) -> bool {

@@ -347,8 +347,9 @@ clap alias), the call in `findings()`, the title in `render`; new
 `Finding` fields only as `Option`s skipped when `None` (a field Lua reads
 bumps the schema). Help: help/findings.txt. Fixture: a case in
 tests/fixtures/ws and the kind in golden.rs `findings`; the `KINDS` list in
-tests/invariants.rs. Lens: `MARK_KINDS` in lua/mbloaty/init.lua and
-`finding_note` in text.lua if it should be marked in buffers.
+tests/invariants.rs. Neovim: `KINDS` in lua/mbloaty/init.lua (fetched,
+listed per file) and `finding_note` in text.lua if it should be shown in
+buffers; `MARK_KINDS` too if it marks the tree (impl findings only).
 
 **Add a shape.** Detect it in `shape.rs` (`Shape` variant, `shape()`,
 `settle` if it needs code lines), say what it excuses in `rollup.rs`

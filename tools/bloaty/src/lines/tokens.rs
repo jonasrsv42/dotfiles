@@ -3,20 +3,12 @@
 //! written as parsicomb parsers over the source's bytes. Each rule's doc
 //! states its grammar; where a rule is hand-written, its doc says why.
 
-use parsicomb::and::AndExt;
-use parsicomb::and_then::AndThenExt;
-use parsicomb::atomic::is_sequence;
 use parsicomb::byte::byte;
-use parsicomb::map::MapExt;
-use parsicomb::map_err::MapErrExt;
-use parsicomb::not::not;
-use parsicomb::or::OrExt;
-use parsicomb::position::PositionExt;
-use parsicomb::recognize::RecognizeExt;
-use parsicomb::utf8::char::char;
-use parsicomb::utf8::{skip_chars_while, skip_chars_while1};
-use parsicomb::{ByteCursor, Cursor, Parser, ParsicombError, Span};
-use parsicomb::{ntimes, optional, parser_fn, skip_many, skip_while, skip_while1};
+use parsicomb::prelude::*;
+use parsicomb::utf8::{char, skip_chars_while, skip_chars_while1};
+use parsicomb::{
+    Span, is_sequence, not, ntimes, optional, parser_fn, skip_many, skip_while, skip_while1,
+};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(super) enum Kind {

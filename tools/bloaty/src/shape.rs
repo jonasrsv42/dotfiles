@@ -21,6 +21,7 @@ use crate::visit::syntax::compact;
 use proc_macro2::{Delimiter, TokenStream, TokenTree};
 use quote::ToTokens;
 use serde::Serialize;
+use std::cmp::Reverse;
 use std::collections::HashMap;
 use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
@@ -422,9 +423,10 @@ fn arm(a: &syn::Arm) -> Arm {
     }
 }
 
-/// Tokens of `ts`, and whether there's a call or control flow among them.
-fn weigh(ts: TokenStream) -> (usize, bool) {
-    let toks: Vec<TokenTree> = ts.into_iter().collect();
+/// Tokens of `toks`, and whether there's a call or control flow among them.
+/// Adds up over statements (`StmtKey`): none ends in an identifier, so
+/// none's opening `(` reads as a call.
+fn weigh(toks: &[TokenTree]) -> (usize, bool) {
     let mut n = 0;
     let mut active = false;
     for (i, tt) in toks.iter().enumerate() {
@@ -434,7 +436,8 @@ fn weigh(ts: TokenStream) -> (usize, bool) {
                 let called = g.delimiter() == Delimiter::Parenthesis
                     && i > 0
                     && matches!(&toks[i - 1], TokenTree::Ident(_));
-                let (inner, inner_active) = weigh(g.stream());
+                let inner: Vec<TokenTree> = g.stream().into_iter().collect();
+                let (inner, inner_active) = weigh(&inner);
                 n += inner;
                 active |= called || inner_active;
             }
@@ -452,66 +455,111 @@ fn weigh(ts: TokenStream) -> (usize, bool) {
     (n, active)
 }
 
-/// The largest group of arms whose bodies open with the same statements
-/// (compared by shape: names and literals aside), and how far that common
-/// opening goes, if it amounts to something (`MIN_PRELUDE_TOKENS`, a call
-/// or control flow).
-fn repeat(arms: &[syn::Arm]) -> Option<Repeat> {
-    let stmts: Vec<&[Stmt]> = arms
+/// A statement as preludes compare it: its shape hash, where it starts,
+/// and its `weigh`t.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct StmtKey {
+    hash: u64,
+    line: usize,
+    tokens: usize,
+    active: bool,
+}
+
+/// The keys of `stmts`, hashed by shape (names and literals aside).
+fn stmt_keys(stmts: &[Stmt]) -> Vec<StmtKey> {
+    stmts
         .iter()
-        .map(|a| match &*a.body {
-            // A prelude needs something after it.
-            Expr::Block(b) if b.block.stmts.len() >= 2 => &b.block.stmts[..],
-            _ => &[][..],
+        .map(|s| {
+            // Owned trees, not a shared stream: iterating one clones it.
+            let toks: Vec<TokenTree> = s.to_token_stream().into_iter().collect();
+            // Its first token's: `Spanned::span` would tokenize it again.
+            let line = toks.first().map_or(0, |t| t.span().start().line);
+            let (tokens, active) = weigh(&toks);
+            StmtKey {
+                hash: token_hashes(toks.into_iter().collect()).shape,
+                line,
+                tokens,
+                active,
+            }
         })
-        .collect();
-    let hash = |s: &Stmt| token_hashes(s.to_token_stream()).shape;
+        .collect()
+}
+
+/// Statement sequences opening alike: `members` (indices, ascending) share
+/// their first `statements` keys.
+#[derive(Clone, Debug, PartialEq)]
+struct Prelude {
+    statements: usize,
+    members: Vec<usize>,
+}
+
+/// One group per distinct first statement (of sequences with something
+/// after it), with the opening all its members share: extended only as far
+/// as every member agrees, so a member sharing just the first statement
+/// hides a longer opening a subgroup shares. Groups that amount to
+/// something (`MIN_PRELUDE_TOKENS`, a call or control flow), in order of
+/// their first member.
+fn preludes(seqs: &[Vec<StmtKey>]) -> Vec<Prelude> {
     let mut groups: HashMap<u64, Vec<usize>> = HashMap::new();
-    for (i, s) in stmts.iter().enumerate() {
-        if let Some(first) = s.first() {
-            groups.entry(hash(first)).or_default().push(i);
+    for (i, s) in seqs.iter().enumerate() {
+        // A prelude needs something after it.
+        if s.len() >= 2 {
+            groups.entry(s[0].hash).or_default().push(i);
         }
     }
-    let mut best: Option<Repeat> = None;
-    for mut group in groups.into_values().filter(|g| g.len() >= MIN_PRELUDE_ARMS) {
-        group.sort_unstable();
-        // Extend the common opening while every arm in the group has the
-        // same next statement (and still something after it).
-        let first = stmts[group[0]];
+    let mut out = Vec::new();
+    for group in groups.into_values().filter(|g| g.len() >= MIN_PRELUDE_ARMS) {
+        // Extend the common opening while every sequence in the group has
+        // the same next statement (and still something after it).
+        let first = &seqs[group[0]];
         let mut k = 1;
         while group
             .iter()
-            .all(|&i| stmts[i].len() > k + 1 && hash(&stmts[i][k]) == hash(&first[k]))
+            .all(|&i| seqs[i].len() > k + 1 && seqs[i][k].hash == first[k].hash)
         {
             k += 1;
         }
-        let prelude: TokenStream = first[..k].iter().map(|s| s.to_token_stream()).collect();
-        let (tokens, active) = weigh(prelude);
-        if tokens < MIN_PRELUDE_TOKENS || !active {
-            continue;
-        }
-        let candidate = Repeat {
-            statements: k,
-            count: group.len(),
-            at: group
-                .iter()
-                .take(MAX_PRELUDE_AT)
-                .map(|&i| stmts[i][0].span().start().line)
-                .collect(),
-        };
-        // Most arms, then most statements, then earliest.
-        let better = best.as_ref().is_none_or(|b| {
-            (
-                candidate.count,
-                candidate.statements,
-                std::cmp::Reverse(candidate.at[0]),
-            ) > (b.count, b.statements, std::cmp::Reverse(b.at[0]))
-        });
-        if better {
-            best = Some(candidate);
+        let tokens: usize = first[..k].iter().map(|s| s.tokens).sum();
+        if tokens >= MIN_PRELUDE_TOKENS && first[..k].iter().any(|s| s.active) {
+            out.push(Prelude {
+                statements: k,
+                members: group,
+            });
         }
     }
-    best
+    out.sort_unstable_by_key(|p| p.members[0]);
+    out
+}
+
+/// The largest group of arms whose bodies open with the same statements
+/// (compared by shape: names and literals aside), if any (`preludes`).
+fn repeat(arms: &[syn::Arm]) -> Option<Repeat> {
+    let seqs: Vec<Vec<StmtKey>> = arms
+        .iter()
+        .map(|a| match &*a.body {
+            Expr::Block(b) => stmt_keys(&b.block.stmts),
+            _ => Vec::new(),
+        })
+        .collect();
+    // Most arms, then most statements, then earliest.
+    let best = preludes(&seqs).into_iter().max_by_key(|p| {
+        let first = p.members[0];
+        (
+            p.members.len(),
+            p.statements,
+            Reverse((seqs[first][0].line, first)),
+        )
+    })?;
+    Some(Repeat {
+        statements: best.statements,
+        count: best.members.len(),
+        at: best
+            .members
+            .iter()
+            .take(MAX_PRELUDE_AT)
+            .map(|&i| seqs[i][0].line)
+            .collect(),
+    })
 }
 
 #[cfg(test)]
@@ -851,6 +899,37 @@ mod tests {
         // An arm's only statement is its value, not a prelude.
         let one = "fn f(m: M) -> u32 { match m { M::A(p) => { load(p, 1, 2, 3, 4, 5) } M::B(p) => { load(p, 1, 2, 3, 4, 5) } M::C => 3, M::D => 4 } }";
         assert_eq!(repeat(one), None);
+    }
+
+    #[test]
+    fn preludes_are_every_group_opening_alike() {
+        let seq = |hashes: &[u64], tokens| {
+            hashes
+                .iter()
+                .map(|&hash| StmtKey {
+                    hash,
+                    line: 1,
+                    tokens,
+                    active: true,
+                })
+                .collect::<Vec<_>>()
+        };
+        let seqs = [
+            seq(&[1, 2, 9], 6),
+            seq(&[3, 4], 12),
+            seq(&[1, 2, 8], 6),
+            seq(&[3, 5], 12),
+            // Nothing after its opening.
+            seq(&[1], 12),
+            // Too little to amount to something.
+            seq(&[6, 7], 11),
+            seq(&[6, 8], 11),
+        ];
+        let prelude = |statements, members: &[usize]| Prelude {
+            statements,
+            members: members.to_vec(),
+        };
+        assert_eq!(preludes(&seqs), [prelude(2, &[0, 2]), prelude(1, &[1, 3])]);
     }
 
     #[test]

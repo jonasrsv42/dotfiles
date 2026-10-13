@@ -15,8 +15,8 @@ pub(crate) mod syntax;
 
 use crate::fnmetrics::{FnMetrics, PanicSite, fn_metrics};
 use crate::shape::{self, Lint, Shape};
-use body::{body_hashes, forward_target, is_struct_literal, logic};
-use cfg::{always_built, cfg_attrs, is_checked_test, is_test_only};
+use body::{forward_target, is_struct_literal, literal_hashes, logic, token_hashes};
+use cfg::{always_built, cfg_attrs, is_checked_test, is_test_fn, is_test_only};
 use macros::{expression_args, token_words};
 use proc_macro2::{TokenStream, TokenTree};
 use quote::ToTokens;
@@ -180,6 +180,28 @@ pub struct FnFact {
     /// Clippy lints allowed on the fn that excuse a smell dimension
     /// (measured fns only).
     pub allowed: Vec<Lint>,
+    /// A test fn as written (`TestFn`).
+    #[allow(
+        dead_code,
+        reason = "read by the table-driven-test findings, next step"
+    )]
+    pub test_fn: Option<TestFn>,
+}
+
+/// A `#[test]`-like fn without params (`cfg::is_test_fn`): what tells tests
+/// apart that could be one table-driven test.
+#[allow(
+    dead_code,
+    reason = "read by the table-driven-test findings, next step"
+)]
+pub struct TestFn {
+    /// The inline `mod`s it sits in (its scope within the file).
+    pub scope: Vec<String>,
+    /// Its attributes other than docs, as text (`should_panic`,
+    /// `tokio::test (flavor = "multi_thread")`).
+    pub attrs: Vec<String>,
+    /// `body::literal_hashes` of the body.
+    pub literals: Vec<u64>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -492,6 +514,21 @@ impl Visitor<'_> {
             let (m, sites) = fn_metrics(s.sig, s.block);
             (Some(m), sites, shape::shape(s.block))
         };
+        let test = s.sig.inputs.is_empty() && is_test_fn(s.attrs);
+        // A lone `Self { a, b, c }` matches every constructor of its shape.
+        let hashed = self.fn_stack.len() < 3 && !is_struct_literal(s.block);
+        // Tokenized once, for the body hash and a test's literals.
+        let tokens = (hashed || test).then(|| s.block.to_token_stream());
+        let test_fn = test.then(|| TestFn {
+            scope: self.inline_path.clone(),
+            attrs: s
+                .attrs
+                .iter()
+                .filter(|a| !a.path().is_ident("doc"))
+                .map(|a| compact(&a.meta))
+                .collect(),
+            literals: literal_hashes(tokens.clone().unwrap_or_default()),
+        });
         let forwards_to = match s.kind {
             // Trait impls often *must* delegate (Display, From, Deref...).
             FnKind::Free | FnKind::Inherent if !in_test && !exempt && cfgs.is_empty() => {
@@ -516,13 +553,12 @@ impl Visitor<'_> {
             body_line: s.block.brace_token.span.open().start().line,
             logic: logic(s.sig, s.block),
             forwards_to,
-            // A lone `Self { a, b, c }` matches every constructor of its shape.
-            body_hash: (self.fn_stack.len() < 3 && !is_struct_literal(s.block))
-                .then(|| body_hashes(s.block)),
+            body_hash: hashed.then(|| token_hashes(tokens.unwrap_or_default())),
             metrics,
             panic_sites,
             shape,
             allowed,
+            test_fn,
         }
     }
 
@@ -1207,6 +1243,56 @@ mod tests {
         // Recursion is still a mention; `self_refs` lets findings discount it.
         assert_eq!(refs(&f, "rec"), (1, 0));
         assert_eq!(fact(&f, "rec").self_refs, 1);
+    }
+
+    #[test]
+    fn records_test_fns_as_written() {
+        let f = facts(
+            r#"#[cfg(test)]
+mod tests {
+    mod inner {
+        /// Doc.
+        #[tokio::test(flavor = "multi_thread")]
+        #[should_panic]
+        async fn a() {
+            let x = load(1, "p");
+            check(x, 2);
+        }
+        #[test]
+        fn b() {
+            let x = load(1, "q");
+            check(x, 3);
+        }
+    }
+    #[rstest]
+    fn r() {}
+    #[test]
+    fn p(x: u8) {}
+}"#,
+        );
+        let t = |name: &str| fact(&f, name).test_fn.as_ref();
+        let (a, b) = (t("a").unwrap(), t("b").unwrap());
+        assert_eq!(a.scope, ["tests", "inner"]);
+        assert_eq!(
+            a.attrs,
+            ["tokio::test (flavor = \"multi_thread\")", "should_panic"]
+        );
+        assert_eq!(b.attrs, ["test"]);
+        // Only literals differ: the same names hash, literals apart where
+        // they differ.
+        assert_eq!(
+            fact(&f, "a").body_hash.unwrap().names,
+            fact(&f, "b").body_hash.unwrap().names
+        );
+        let same: Vec<bool> = a
+            .literals
+            .iter()
+            .zip(&b.literals)
+            .map(|(x, y)| x == y)
+            .collect();
+        assert_eq!(same, [true, false, false]);
+        // Called with arguments: not a test as written.
+        assert!(t("r").is_none() && t("p").is_none());
     }
 
     #[test]

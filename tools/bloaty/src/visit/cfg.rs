@@ -103,6 +103,12 @@ fn implies_test(m: &Meta, test_features: &HashSet<String>, checked: bool) -> boo
     }
 }
 
+/// A test attribute that runs the fn as written: last path segment `test`
+/// (`#[test]`, `#[tokio::test]`), not `#[rstest]` / `#[test_case(..)]`.
+pub(super) fn is_test_fn(attrs: &[Attribute]) -> bool {
+    attrs.iter().any(|a| last_segment(a.path()) == "test")
+}
+
 /// The `#[cfg(..)]` predicates among the attributes, as strings.
 pub(super) fn cfg_attrs(attrs: &[Attribute]) -> Vec<String> {
     attrs

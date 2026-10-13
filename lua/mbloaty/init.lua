@@ -57,9 +57,12 @@ local enabled = true
 --   gen, jobs, timer  run bookkeeping
 -- }
 local roots = {}
--- Findings that mark a file as bloated. Long fns and test-heavy files are
--- common and judgement calls, so they don't.
-local MARK_KINDS = { "duplicate", "unused", "single-impl-trait" }
+-- Findings fetched, by their JSON names (`--kind` takes them too): listed
+-- per file (lens, quickfix, `B`)...
+local KINDS = { "duplicate", "unused", "single_impl_trait" }
+-- ...and those that mark a file as bloated (tree `•`). Long fns and
+-- test-heavy files are common and judgement calls, so they don't.
+local MARK_KINDS = { duplicate = true, unused = true, single_impl_trait = true }
 local DEBOUNCE_MS = 1500
 -- The `--json` format this code reads (bloaty's `schema` field). Older or
 -- unversioned output is refused, not misread.
@@ -253,14 +256,17 @@ local function refresh(dir)
     done(code)
   end)
   local args = { "findings", dir, "--json", "--top", "0" }
-  for _, kind in ipairs(MARK_KINDS) do
+  for _, kind in ipairs(KINDS) do
     vim.list_extend(args, { "--kind", kind })
   end
   local findings = run(args, dir, function(f, code)
     for _, finding in ipairs(f and f.findings or {}) do
-      -- Like the counts, marks are about implementation code; duplicate
-      -- notes and test copies are listed, never marked.
-      if finding.category ~= "test" then
+      if not MARK_KINDS[finding.kind] then
+        file_findings(by_file, finding)
+      -- Like the counts, marks are about implementation code: a marking
+      -- kind's test findings aren't kept; its notes and test copies are
+      -- listed, never marked.
+      elseif finding.category ~= "test" then
         -- Every impl copy of a duplicate is a place to look.
         for _, p in ipairs(finding.tier ~= "note" and (finding.copies or { finding }) or {}) do
           if not p.test then
