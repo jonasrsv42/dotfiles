@@ -1,10 +1,12 @@
 -- bloaty in Neovim: where the code of a Rust project lives, and where it is
 -- bloated, at a glance. This module runs bloaty and caches its answers per
 -- root; the views read them:
---   lua/mbloaty/tree.lua  the neo-tree column: a dim count of
---                         implementation lines per file and directory
---                         (tests, docs and comments excluded), coloured
---                         warmer where code piles up, with
+--   lua/mbloaty/tree.lua  the neo-tree column: a dim bar `▂ ▄ ▆ █` for
+--                         a file's or directory's share of the
+--                         implementation lines (tests, docs and comments
+--                         excluded) of the directory it's in (blank under
+--                         3%, under 20 lines or for an only child; the
+--                         count is in `B`), with to its left
 --     `•`  on files/directories holding bloat findings (duplicate bodies,
 --          unused code, single-impl traits), and
 --     `●`  on files that smell: red = hot (worst ~5% of the workspace by
@@ -46,6 +48,7 @@ local enabled = true
 --   real      its realpath (bloaty's paths are real)
 --   ready     the last runs' data below is in place
 --   loc       {path -> impl lines}, files and directories
+--   kids      {directory -> number of its children with impl lines}
 --   marks     {path -> number of findings}, files and directories
 --   tables    {path -> number of table-driven-test candidates
 --             (`parametrize`)}, files and directories (listed, never
@@ -220,7 +223,7 @@ local function refresh(dir)
   r.gen = (r.gen or 0) + 1
   r.started, r.busy = vim.uv.clock_gettime("realtime"), true
   local gen, pending = r.gen, 2
-  local loc, marks, tables, setups, smell, files, by_file = {}, {}, {}, {}, {}, {}, {}
+  local loc, kids, marks, tables, setups, smell, files, by_file = {}, {}, {}, {}, {}, {}, {}, {}
   local refused, outdated = false, false
   local function done(code)
     refused = refused or code == 2
@@ -236,8 +239,8 @@ local function refresh(dir)
       -- Nothing cached: recomputed once the binary changes (see `data`).
       r.ready, r.outdated = false, binary_stamp()
     else
-      r.loc, r.marks, r.tables, r.setups, r.smell, r.files, r.findings, r.ready =
-        loc, marks, tables, setups, smell, files, by_file, true
+      r.loc, r.kids, r.marks, r.tables, r.setups, r.smell, r.files, r.findings, r.ready =
+        loc, kids, marks, tables, setups, smell, files, by_file, true
     end
     redraw()
     for _, cb in ipairs(listeners) do
@@ -254,6 +257,10 @@ local function refresh(dir)
       end
       if g.path and g.impl > 0 then
         up(g.path, r.real, function(p)
+          if not loc[p] and p ~= r.real then
+            local d = vim.fs.dirname(p)
+            kids[d] = (kids[d] or 0) + 1
+          end
           loc[p] = (loc[p] or 0) + g.impl
         end)
         local level = text.level(g)
@@ -454,9 +461,11 @@ end
 
 function M.setup()
   for name, link in pairs({
-    BloatyCool = "Comment",
-    BloatyWarm = "Normal",
-    BloatyHot = "DiagnosticWarn",
+    -- Size isn't a finding: dim as neo-tree's own dim text, never a
+    -- diagnostic colour (those are for the marks). Linked unconditionally:
+    -- neo-tree defines NeoTreeDimText only when the tree first opens, which
+    -- is before the bar is ever drawn.
+    BloatySize = "NeoTreeDimText",
     BloatyMark = "DiagnosticHint",
     BloatySmellHot = "DiagnosticError",
     BloatySmellWarm = "DiagnosticWarn",

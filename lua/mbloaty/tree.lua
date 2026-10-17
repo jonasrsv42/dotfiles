@@ -6,34 +6,23 @@ local text = require("mbloaty.text")
 
 local M = {}
 
-local function human(n)
-  if n < 1000 then
-    return tostring(n)
-  elseif n < 9950 then
-    return string.format("%.1fk", n / 1000)
-  end
-  return string.format("%dk", math.floor(n / 1000 + 0.5))
-end
+-- Size is information, not a finding: a dim bar for a node's share of the
+-- directory it's in (files and directories alike), so where the code is
+-- shows at whatever level you look. Blank where it would say nothing: under
+-- 20 lines, the root row, or the only child with lines (always 100%).
+local BARS = { { 0.5, "█" }, { 0.2, "▆" }, { 0.08, "▄" }, { 0.03, "▂" } }
 
--- Files: absolute size. Directories: their share of the directory they're
--- in, so the hot spot shows at whatever level you look.
-local function heat(node, n, r, key)
-  if node.type == "directory" then
-    local parent = r.loc[vim.fs.dirname(key)]
-    local share = (node:get_depth() > 1 and parent and parent > 0) and n / parent or 0
-    if share >= 0.4 then
-      return "BloatyHot"
-    elseif share >= 0.2 then
-      return "BloatyWarm"
+local function bar(r, key, n, depth)
+  local parent = vim.fs.dirname(key)
+  if n < 20 or depth == 1 or (r.kids[parent] or 0) < 2 then
+    return " "
+  end
+  for _, b in ipairs(BARS) do
+    if n >= b[1] * r.loc[parent] then
+      return b[2]
     end
-    return "BloatyCool"
   end
-  if n >= 500 then
-    return "BloatyHot"
-  elseif n >= 200 then
-    return "BloatyWarm"
-  end
-  return "BloatyCool"
+  return " "
 end
 
 --- neo-tree component: (config, node, state, remaining width).
@@ -51,19 +40,21 @@ function M.component(_, node, state, width)
     return {}
   end
   -- When the name leaves no room, neo-tree would cut this column from the
-  -- left (229 -> "29"): drop it whole instead. 9 columns + 1 padding.
-  if width and vim.api.nvim_strwidth(node.name or "") + 10 > width then
+  -- left (marks first): drop it whole instead. 4 columns + 1 padding, always
+  -- all four so the bars line up.
+  if width and vim.api.nvim_strwidth(node.name or "") + 5 > width then
     return {}
   end
   local level = r.smell[key]
+  local depth = node:get_depth()
   -- The root row would always be hot: leave it plain.
-  if node:get_depth() == 1 then
+  if depth == 1 then
     level = nil
   end
   return {
     { text = r.marks[key] and "•" or " ", highlight = "BloatyMark" },
     { text = level and "●" or " ", highlight = text.DOT_HL[level] or "BloatySmellWarm" },
-    { text = string.format("%5s ", human(n)), highlight = heat(node, n, r, key) },
+    { text = bar(r, key, n, depth) .. " ", highlight = "BloatySize" },
   }
 end
 

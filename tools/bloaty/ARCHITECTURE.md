@@ -90,8 +90,11 @@ Neovim (lua/mbloaty/):
 - `init.lua`: runs `summary --by file --json` and `findings --json --top 0`
   per root, caches them, refuses output older than its `SCHEMA`, `lookup`,
   `metrics` (runs `bloaty metrics FILE`), setup and keys.
-- `tree.lua`: the neo-tree column (line counts, `•` findings, `●` smell
-  dot: hot red, warm yellow, noted blue) and `B` explain.
+- `tree.lua`: the neo-tree column (`•` findings, `●` smell dot: hot red,
+  warm yellow, noted blue; then a dim size bar `▂ ▄ ▆ █`, the node's share
+  of its directory's impl lines, ≥ 3/8/20/50%, blank under 20 lines, for
+  the root and for an only child; size is information, never coloured as
+  a finding) and `B` explain (which has the line count).
 - `lens.lua`: end-of-line notes on the culprits of a file's dot, quickfix
   list, fn float.
 - `text.lua`: all wording shared by tree and lens (pure functions of JSON).
