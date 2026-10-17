@@ -3,6 +3,7 @@
 //! only in lists) and a hint. Hints are advice, never a claim that a
 //! refactor compiles: bloaty doesn't know visibility, types or re-exports.
 
+use super::MIN_SHAPE_LINES;
 use crate::visit::sig::Part;
 use serde::Serialize;
 
@@ -28,6 +29,13 @@ pub enum Rule {
     /// Identical under different cfgs (deliberate, but still the same
     /// code twice: a finding).
     CfgIdentical,
+    /// Same shape, with test copies and at most one impl copy: in the
+    /// audits every such group was mirrored tests or a test's reference
+    /// copy of an impl fn.
+    TestShape,
+    /// Identical test code, one copy per crate in several crates, each
+    /// under `MIN_SHAPE_LINES` lines: small helpers each crate's tests keep.
+    TestCrates,
     /// The same code in several crates.
     Crates,
     /// The same code, identical body.
@@ -44,15 +52,38 @@ pub(super) struct Facts {
     /// Not every copy has the same cfgs (as written); only within one crate.
     pub cfgs_differ: bool,
     pub crates: usize,
+    pub copies: usize,
+    /// Copies outside test code.
+    pub impl_copies: usize,
+    /// Some crate holds two copies or more.
+    pub crowded: bool,
+    /// The smallest copy's lines after the signature (as `lines` counts them).
+    pub lines: usize,
+    /// Test targets the copies are in, by path: a crate's `src/`, and each
+    /// entry of its `tests/` and `benches/`.
+    pub test_targets: usize,
+}
+
+impl Facts {
+    /// Every copy is test code.
+    pub fn test(&self) -> bool {
+        self.impl_copies == 0
+    }
 }
 
 type Applies = fn(&Facts) -> bool;
 
 /// The table: each rule's fact. `SameShape` holds for anything left.
-const TABLE: [(Rule, Applies); 6] = [
+const TABLE: [(Rule, Applies); 8] = [
     (Rule::Signatures, |f| !f.differs.is_empty()),
     (Rule::CfgVariants, |f| f.cfgs_differ && !f.identical),
     (Rule::CfgIdentical, |f| f.cfgs_differ),
+    (Rule::TestShape, |f| {
+        f.impl_copies < 2 && f.impl_copies < f.copies && !f.identical
+    }),
+    (Rule::TestCrates, |f| {
+        f.test() && f.crates > 1 && !f.crowded && f.lines < MIN_SHAPE_LINES
+    }),
     (Rule::Crates, |f| f.crates > 1),
     (Rule::Identical, |f| f.identical),
     (Rule::SameShape, |_| true),
@@ -68,7 +99,7 @@ impl Rule {
 
     pub fn tier(self) -> Tier {
         match self {
-            Rule::Signatures | Rule::CfgVariants => Tier::Note,
+            Rule::Signatures | Rule::CfgVariants | Rule::TestShape | Rule::TestCrates => Tier::Note,
             Rule::CfgIdentical | Rule::Crates | Rule::Identical | Rule::SameShape => Tier::Finding,
         }
     }
@@ -80,17 +111,28 @@ impl Rule {
             Rule::Signatures => "equal bodies under different signatures",
             Rule::CfgVariants => "same-shape bodies under different cfgs (cfg variants)",
             Rule::CfgIdentical => "identical fns under different cfgs",
+            Rule::TestShape => {
+                "fns with the same shape, mirrored in test code (names/literals differ)"
+            }
+            Rule::TestCrates => "short identical test fns",
             Rule::Crates | Rule::Identical => "identical fns",
             Rule::SameShape => "fns with the same shape (names/literals differ)",
         }
     }
 
-    /// Advice, if any (for `Signatures`, see `part_hint`).
-    pub fn hint(self) -> Option<&'static str> {
+    /// Advice, if any (for `Signatures`, see `part_hint`). Test code in
+    /// several crates or test targets can't call one copy directly.
+    pub(super) fn hint(self, f: &Facts) -> Option<&'static str> {
         match self {
-            Rule::Signatures | Rule::CfgVariants => None,
+            Rule::Signatures | Rule::CfgVariants | Rule::TestShape | Rule::TestCrates => None,
             Rule::CfgIdentical => Some("one fn without the cfg split may do"),
+            Rule::Crates if f.test() => {
+                Some("a test-support crate the others take as a dev-dependency")
+            }
             Rule::Crates => Some("move it into a shared crate, or reuse it through a dependency"),
+            Rule::Identical if f.test() && f.test_targets > 1 => Some(
+                "in different test targets: a module each declares (`mod common;`) or a test-support crate",
+            ),
             Rule::Identical => Some("a helper both can call"),
             Rule::SameShape => Some("a parameterised helper"),
         }
@@ -275,6 +317,51 @@ mod tests {
                     "#[cfg(unix)]\nfn a(x: u32) -> u32",
                     "#[cfg(unix)]\nfn b(x: u32) -> u32"
                 ),
+            },
+            Rule::TestShape => Example {
+                src: &[
+                    ("Cargo.toml", PKG),
+                    (
+                        "src/lib.rs",
+                        concat!(
+                            "#[cfg(test)]\nmod t {\n",
+                            long!("fn j", "a", "1"),
+                            long!("fn k", "b", "2"),
+                            "}\n"
+                        ),
+                    ),
+                ],
+                // Two copies outside test code: the same shape, a finding.
+                counter: &[
+                    ("Cargo.toml", PKG),
+                    (
+                        "src/lib.rs",
+                        concat!(
+                            long!("fn j", "a", "1"),
+                            long!("fn k", "b", "2"),
+                            "#[cfg(test)]\nmod t {\n",
+                            long!("fn l", "c", "3"),
+                            "}\n"
+                        ),
+                    ),
+                ],
+            },
+            Rule::TestCrates => Example {
+                src: &[
+                    ("Cargo.toml", "[workspace]\nmembers = [\"a\", \"b\"]\n"),
+                    ("a/Cargo.toml", "[package]\nname = \"a\"\n"),
+                    ("a/tests/t.rs", concat!("fn f(x: u32) -> u32 ", body!())),
+                    ("b/Cargo.toml", "[package]\nname = \"b\"\n"),
+                    ("b/tests/t.rs", concat!("fn g(x: u32) -> u32 ", body!())),
+                ],
+                // As long as same shape needs: a finding.
+                counter: &[
+                    ("Cargo.toml", "[workspace]\nmembers = [\"a\", \"b\"]\n"),
+                    ("a/Cargo.toml", "[package]\nname = \"a\"\n"),
+                    ("a/tests/t.rs", long!("fn f", "a", "1")),
+                    ("b/Cargo.toml", "[package]\nname = \"b\"\n"),
+                    ("b/tests/t.rs", long!("fn f", "a", "1")),
+                ],
             },
             Rule::Crates => Example {
                 src: &[

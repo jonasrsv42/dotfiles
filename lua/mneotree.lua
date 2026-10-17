@@ -41,7 +41,7 @@ require("neo-tree").setup({
     },
   },
   filesystem = {
-    -- bloaty: a dim bar for each file/dir's share of its directory's impl
+    -- bloaty: a dim line count and bar for each file/dir's share of its directory's impl
     -- lines, `•` where it found bloat, `●` where it smells
     -- (lua/mbloaty/tree.lua). The renderers are neo-tree v3's defaults plus it;
     -- it gives way first (zindex 5) when names need the width.

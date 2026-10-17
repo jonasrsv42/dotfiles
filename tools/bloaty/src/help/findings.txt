@@ -14,9 +14,13 @@ Kinds, in the order worth working through:
                      constructors like `Self(x)` don't count), so bodies
                      that only forward to `self` or to another fn never
                      count. Identical free fns and inherent methods of
-                     impl code count however short. Each group is reported
-                     once with every copy and the facts about it: per copy
-                     `crate`, `test`, `cfgs`, `signature`, `class` (its
+                     impl code need min(7, --min-dup) lines after the
+                     signature (closing brace included; --min-dup is 8
+                     by default). Same shape
+                     needs max(--min-dup, 15) own code lines (signature
+                     included). Each group is reported once with every
+                     copy and the facts about it: per copy `crate`,
+                     `lines`, `test`, `cfgs`, `signature`, `class` (its
                      signature among the group's); per group `crates`,
                      `depends` ([a, b]: a depends on b directly, per
                      Cargo.toml), `rule`, `hint`. `tier`: `finding` (worth
@@ -25,8 +29,12 @@ Kinds, in the order worth working through:
                      the editor, counted in `duplicate_notes`): equal
                      bodies under different signatures (`differs` names
                      the parts: an owned/borrowed pair, typestates, one
-                     body on two types) or same-shape cfg variants of one
-                     crate. Hints are advice, not claims.
+                     body on two types), same-shape cfg variants of one
+                     crate, same-shape groups with test copies and at
+                     most one impl copy (`test_shape`), or test-only
+                     identical groups with one copy per crate in several
+                     crates, each under 15 lines after the signature
+                     (`test_crates`). Hints are advice, not claims.
                      Limits: names aren't resolved (same-named items in
                      different files or crates, like consts or imported
                      types, count as the same); signatures compare as
@@ -36,7 +44,18 @@ Kinds, in the order worth working through:
                      concrete type, an alias from its type; bodies that
                      differ only in literals are data, never duplicates;
                      whether copies can call each other (visibility,
-                     re-exports, types) isn't checked.
+                     re-exports, types) isn't checked. Recall paid for
+                     precision: identical free fns and inherent methods
+                     under 7 lines after the signature aren't duplicates
+                     (those seen were idioms like `would_block`, not
+                     helpers worth sharing); same-shape test code is a
+                     note because in the audits every one was a mirrored
+                     test (or a test's reference copy of an impl fn);
+                     test-only groups across crates, one copy each, are
+                     findings only from 15 lines. A test-only group in
+                     several test targets (by path: `src/`, each
+                     `tests/` or `benches/` entry) gets a shared-module
+                     hint, but is still a finding.
   unused             fns/types/traits whose name is mentioned nowhere
                      outside tests (incl. doctests), or for a fn only in
                      its own body. Mentions: identifiers in code,

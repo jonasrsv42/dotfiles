@@ -6,11 +6,22 @@ local text = require("mbloaty.text")
 
 local M = {}
 
--- Size is information, not a finding: a dim bar for a node's share of the
--- directory it's in (files and directories alike), so where the code is
--- shows at whatever level you look. Blank where it would say nothing: under
+local function human(n)
+  if n < 1000 then
+    return tostring(n)
+  elseif n < 9950 then
+    return string.format("%.1fk", n / 1000)
+  end
+  return string.format("%dk", math.floor(n / 1000 + 0.5))
+end
+
+-- Size is information, not a finding: a dim line count, and a dim bar for a
+-- node's share of the directory it's in (files and directories alike), so
+-- where the code is shows at whatever level you look. The bar is blank where it would say nothing: under
 -- 20 lines, the root row, or the only child with lines (always 100%).
-local BARS = { { 0.5, "█" }, { 0.2, "▆" }, { 0.08, "▄" }, { 0.03, "▂" } }
+-- Never a full block: the gap at the top keeps stacked rows from merging
+-- into one long bar.
+local BARS = { { 0.3, "▆" }, { 0.08, "▄" }, { 0.03, "▂" } }
 
 local function bar(r, key, n, depth)
   local parent = vim.fs.dirname(key)
@@ -40,9 +51,9 @@ function M.component(_, node, state, width)
     return {}
   end
   -- When the name leaves no room, neo-tree would cut this column from the
-  -- left (marks first): drop it whole instead. 4 columns + 1 padding, always
-  -- all four so the bars line up.
-  if width and vim.api.nvim_strwidth(node.name or "") + 5 > width then
+  -- left (marks first): drop it whole instead. 9 columns + 1 padding, always
+  -- all of them so the counts and bars line up.
+  if width and vim.api.nvim_strwidth(node.name or "") + 10 > width then
     return {}
   end
   local level = r.smell[key]
@@ -54,6 +65,7 @@ function M.component(_, node, state, width)
   return {
     { text = r.marks[key] and "•" or " ", highlight = "BloatyMark" },
     { text = level and "●" or " ", highlight = text.DOT_HL[level] or "BloatySmellWarm" },
+    { text = string.format("%5s", human(n)), highlight = "BloatySize" },
     { text = bar(r, key, n, depth) .. " ", highlight = "BloatySize" },
   }
 end

@@ -1,6 +1,6 @@
 -- bloaty's words: the formatters shared by the tree's `B` explain
 -- (mbloaty.tree), the lens, its quickfix list and its float
--- (mbloaty.lens). Pure functions of bloaty's JSON (schema 13).
+-- (mbloaty.lens). Pure functions of bloaty's JSON (schema 14).
 
 local M = {}
 

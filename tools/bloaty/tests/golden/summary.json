@@ -35,7 +35,7 @@
       "panics": 0,
       "path": "<ws>/core/src/dispatch.rs",
       "smell": {
-        "complexity": 0.45,
+        "complexity": 0.43,
         "dims": [
           {
             "dim": "size",
@@ -264,6 +264,47 @@
       "test": 0
     },
     {
+      "blank": 16,
+      "clones": 0,
+      "comment": 1,
+      "crate": "fxcore",
+      "doc": 8,
+      "files": 1,
+      "impl": 68,
+      "largest_fn": {
+        "line": 116,
+        "lines": 17,
+        "name": "spread"
+      },
+      "max_cognitive_complexity": {
+        "line": 116,
+        "name": "spread",
+        "value": 6
+      },
+      "max_cyclomatic_complexity": {
+        "line": 116,
+        "name": "spread",
+        "value": 5
+      },
+      "max_nesting": {
+        "line": 116,
+        "name": "spread",
+        "value": 2
+      },
+      "name": "core/src/dup_a.rs",
+      "panic_density": 0.0,
+      "panics": 0,
+      "path": "<ws>/core/src/dup_a.rs",
+      "smell": {
+        "complexity": 0.9,
+        "fragility": 0.0,
+        "front": 3,
+        "level": null,
+        "size": 0.87
+      },
+      "test": 65
+    },
+    {
       "blank": 5,
       "clones": 0,
       "comment": 3,
@@ -300,7 +341,7 @@
         "fragility": 0.0,
         "front": 5,
         "level": null,
-        "size": 0.87
+        "size": 0.83
       },
       "test": 19
     },
@@ -411,7 +452,7 @@
       "panics": 0,
       "path": "<ws>/core/src/long.rs",
       "smell": {
-        "complexity": 0.78,
+        "complexity": 0.75,
         "fragility": 0.0,
         "front": 2,
         "level": null,
@@ -420,11 +461,11 @@
       "test": 0
     },
     {
-      "blank": 3,
+      "blank": 5,
       "clones": 1,
       "comment": 0,
       "crate": "fxapp",
-      "doc": 1,
+      "doc": 3,
       "files": 1,
       "impl": 38,
       "largest_fn": {
@@ -458,7 +499,7 @@
         "level": null,
         "size": 0.93
       },
-      "test": 0
+      "test": 18
     },
     {
       "blank": 8,
@@ -510,7 +551,7 @@
       "panics": 7,
       "path": "<ws>/core/src/fragile.rs",
       "smell": {
-        "complexity": 0.45,
+        "complexity": 0.43,
         "dims": [
           {
             "culprit": true,
@@ -523,7 +564,7 @@
         "fragility": 0.9,
         "front": 1,
         "level": "hot",
-        "size": 0.73,
+        "size": 0.7,
         "why": "fragility: 20.0 panics/100 lines (7 panics)"
       },
       "test": 0
@@ -600,53 +641,13 @@
       "panics": 0,
       "path": "<ws>/core/src/shapes.rs",
       "smell": {
-        "complexity": 0.9,
+        "complexity": 0.87,
         "fragility": 0.0,
         "front": 4,
         "level": null,
-        "size": 0.67
-      },
-      "test": 0
-    },
-    {
-      "blank": 11,
-      "clones": 0,
-      "comment": 1,
-      "crate": "fxcore",
-      "doc": 4,
-      "files": 1,
-      "impl": 21,
-      "largest_fn": {
-        "line": 3,
-        "lines": 11,
-        "name": "checksum"
-      },
-      "max_cognitive_complexity": {
-        "line": 3,
-        "name": "checksum",
-        "value": 1
-      },
-      "max_cyclomatic_complexity": {
-        "line": 3,
-        "name": "checksum",
-        "value": 2
-      },
-      "max_nesting": {
-        "line": 3,
-        "name": "checksum",
-        "value": 1
-      },
-      "name": "core/src/dup_a.rs",
-      "panics": 0,
-      "path": "<ws>/core/src/dup_a.rs",
-      "smell": {
-        "complexity": 0.45,
-        "fragility": 0.0,
-        "front": 8,
-        "level": null,
         "size": 0.63
       },
-      "test": 41
+      "test": 0
     },
     {
       "blank": 1,
@@ -680,11 +681,11 @@
       "panics": 0,
       "path": "<ws>/core/src/f09.rs",
       "smell": {
-        "complexity": 0.78,
+        "complexity": 0.75,
         "fragility": 0.0,
         "front": 4,
         "level": null,
-        "size": 0.79
+        "size": 0.76
       },
       "test": 0
     },
@@ -775,11 +776,11 @@
       "panics": 0,
       "path": "<ws>/core/src/f13.rs",
       "smell": {
-        "complexity": 0.78,
+        "complexity": 0.75,
         "fragility": 0.0,
         "front": 5,
         "level": null,
-        "size": 0.74
+        "size": 0.71
       },
       "test": 0
     },
@@ -815,11 +816,11 @@
       "panics": 0,
       "path": "<ws>/core/src/f14.rs",
       "smell": {
-        "complexity": 0.45,
+        "complexity": 0.43,
         "fragility": 0.0,
         "front": 6,
         "level": null,
-        "size": 0.74
+        "size": 0.71
       },
       "test": 0
     },
@@ -905,11 +906,11 @@
       "panics": 0,
       "path": "<ws>/core/src/f04.rs",
       "smell": {
-        "complexity": 0.45,
+        "complexity": 0.43,
         "fragility": 0.0,
         "front": 7,
         "level": null,
-        "size": 0.66
+        "size": 0.62
       },
       "test": 0
     },
@@ -945,11 +946,11 @@
       "panics": 0,
       "path": "<ws>/core/src/f17.rs",
       "smell": {
-        "complexity": 0.78,
+        "complexity": 0.75,
         "fragility": 0.0,
         "front": 6,
         "level": null,
-        "size": 0.66
+        "size": 0.62
       },
       "test": 0
     },
@@ -985,11 +986,11 @@
       "panics": 0,
       "path": "<ws>/core/src/f18.rs",
       "smell": {
-        "complexity": 0.45,
+        "complexity": 0.43,
         "fragility": 0.0,
         "front": 7,
         "level": null,
-        "size": 0.66
+        "size": 0.62
       },
       "test": 0
     },
@@ -1025,11 +1026,11 @@
       "panics": 0,
       "path": "<ws>/core/src/f01.rs",
       "smell": {
-        "complexity": 0.78,
+        "complexity": 0.75,
         "fragility": 0.0,
         "front": 7,
         "level": null,
-        "size": 0.55
+        "size": 0.52
       },
       "test": 0
     },
@@ -1065,11 +1066,11 @@
       "panics": 0,
       "path": "<ws>/core/src/f02.rs",
       "smell": {
-        "complexity": 0.45,
+        "complexity": 0.43,
         "fragility": 0.0,
-        "front": 9,
+        "front": 8,
         "level": null,
-        "size": 0.55
+        "size": 0.52
       },
       "test": 0
     },
@@ -1105,11 +1106,11 @@
       "panics": 0,
       "path": "<ws>/core/src/f08.rs",
       "smell": {
-        "complexity": 0.45,
+        "complexity": 0.43,
         "fragility": 0.0,
-        "front": 9,
+        "front": 8,
         "level": null,
-        "size": 0.55
+        "size": 0.52
       },
       "test": 0
     },
@@ -1145,11 +1146,11 @@
       "panics": 0,
       "path": "<ws>/core/src/f05.rs",
       "smell": {
-        "complexity": 0.78,
+        "complexity": 0.75,
         "fragility": 0.0,
         "front": 8,
         "level": null,
-        "size": 0.43
+        "size": 0.4
       },
       "test": 0
     },
@@ -1185,11 +1186,11 @@
       "panics": 0,
       "path": "<ws>/core/src/f06.rs",
       "smell": {
-        "complexity": 0.45,
+        "complexity": 0.43,
         "fragility": 0.0,
-        "front": 10,
+        "front": 9,
         "level": null,
-        "size": 0.43
+        "size": 0.4
       },
       "test": 0
     },
@@ -1225,11 +1226,11 @@
       "panics": 0,
       "path": "<ws>/core/src/f12.rs",
       "smell": {
-        "complexity": 0.45,
+        "complexity": 0.43,
         "fragility": 0.0,
-        "front": 10,
+        "front": 9,
         "level": null,
-        "size": 0.43
+        "size": 0.4
       },
       "test": 0
     },
@@ -1267,9 +1268,9 @@
       "smell": {
         "complexity": 0.0,
         "fragility": 0.0,
-        "front": 11,
+        "front": 10,
         "level": null,
-        "size": 0.43
+        "size": 0.4
       },
       "test": 0
     },
@@ -1305,11 +1306,11 @@
       "panics": 0,
       "path": "<ws>/app/src/dup_b.rs",
       "smell": {
-        "complexity": 0.45,
+        "complexity": 0.43,
         "fragility": 0.0,
-        "front": 11,
+        "front": 10,
         "level": null,
-        "size": 0.28
+        "size": 0.26
       },
       "test": 0
     },
@@ -1347,9 +1348,9 @@
       "smell": {
         "complexity": 0.0,
         "fragility": 0.0,
-        "front": 12,
+        "front": 11,
         "level": null,
-        "size": 0.28
+        "size": 0.26
       },
       "test": 0
     },
@@ -1385,11 +1386,11 @@
       "panics": 0,
       "path": "<ws>/core/src/f10.rs",
       "smell": {
-        "complexity": 0.45,
+        "complexity": 0.43,
         "fragility": 0.0,
-        "front": 11,
+        "front": 10,
         "level": null,
-        "size": 0.28
+        "size": 0.26
       },
       "test": 0
     },
@@ -1425,11 +1426,11 @@
       "panics": 0,
       "path": "<ws>/core/src/f16.rs",
       "smell": {
-        "complexity": 0.45,
+        "complexity": 0.43,
         "fragility": 0.0,
-        "front": 11,
+        "front": 10,
         "level": null,
-        "size": 0.28
+        "size": 0.26
       },
       "test": 0
     },
@@ -1467,7 +1468,7 @@
       "smell": {
         "complexity": 0.0,
         "fragility": 0.0,
-        "front": 13,
+        "front": 12,
         "level": null,
         "size": 0.16
       },
@@ -1505,9 +1506,9 @@
       "panics": 0,
       "path": "<ws>/core/src/f20.rs",
       "smell": {
-        "complexity": 0.45,
+        "complexity": 0.43,
         "fragility": 0.0,
-        "front": 12,
+        "front": 11,
         "level": null,
         "size": 0.16
       },
@@ -1635,15 +1636,15 @@
       "test": 4
     },
     {
-      "blank": 1,
+      "blank": 5,
       "comment": 1,
       "crate": "fxcore",
-      "doc": 0,
+      "doc": 2,
       "files": 1,
       "impl": 0,
       "name": "core/tests/it.rs",
       "path": "<ws>/core/tests/it.rs",
-      "test": 11
+      "test": 60
     },
     {
       "blank": 27,
@@ -1670,16 +1671,16 @@
   ],
   "hidden": 0,
   "root": "<ws>",
-  "schema": 13,
+  "schema": 14,
   "sort": "impl",
   "test_features": [],
   "total": {
-    "blank": 134,
+    "blank": 145,
     "comment": 36,
-    "doc": 43,
+    "doc": 51,
     "files": 41,
-    "impl": 889,
+    "impl": 936,
     "name": "total",
-    "test": 461
+    "test": 552
   }
 }

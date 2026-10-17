@@ -91,10 +91,10 @@ Neovim (lua/mbloaty/):
   per root, caches them, refuses output older than its `SCHEMA`, `lookup`,
   `metrics` (runs `bloaty metrics FILE`), setup and keys.
 - `tree.lua`: the neo-tree column (`•` findings, `●` smell dot: hot red,
-  warm yellow, noted blue; then a dim size bar `▂ ▄ ▆ █`, the node's share
-  of its directory's impl lines, ≥ 3/8/20/50%, blank under 20 lines, for
+  warm yellow, noted blue; then the dim impl line count and a dim size bar `▂ ▄ ▆`, the node's share
+  of its directory's impl lines, ≥ 3/8/30%, blank under 20 lines, for
   the root and for an only child; size is information, never coloured as
-  a finding) and `B` explain (which has the line count).
+  a finding) and `B` explain.
 - `lens.lua`: end-of-line notes on the culprits of a file's dot, quickfix
   list, fn float.
 - `text.lua`: all wording shared by tree and lens (pure functions of JSON).
@@ -181,16 +181,27 @@ Neovim (lua/mbloaty/):
   leave the Self type out). Each copy needs substance (`--min-dup` code
   lines after the signature and >= `MIN_LOGIC` (1) piece of logic,
   `body::logic`: 0 for forwarding and constructors; identical free fns /
-  inherent methods of impl code at any size). Each body group is
+  inherent methods of impl code from `MIN_CALLABLE_DUP` (7) lines after
+  the signature, below `--min-dup`). Same shape needs
+  `max(min_dup, MIN_SHAPE_LINES)` (15) own code lines per copy, signature
+  included. Each body group is
   reported once with all its copies (several signatures: each signature
   class of >= 2 is a group, and the whole set once more as a note naming
-  the classes, so no copy goes silent). Per copy: crate, test, cfgs as
+  the classes, so no copy goes silent). Per copy: crate, lines, test, cfgs as
   written, signature, class; per group: crates, `depends` (direct
   Cargo.toml dependencies between them), identical. `policy::Rule::of`
   picks the first row of one table whose single fact holds: signatures
   differ → note; same shape under different cfgs (one crate) → note;
-  identical under different cfgs (one crate) / several crates /
-  identical / same shape → finding. Hints are advice text. Notes are
+  identical under different cfgs (one crate) → finding; same shape with
+  test copies and at most one impl copy → note (`test_shape`); test-only,
+  one copy per crate in several crates, the smallest under
+  `MIN_SHAPE_LINES` lines after the signature → note (`test_crates`; a
+  crate with two copies keeps the group a finding, so adding a copy never
+  silences one); several crates / identical / same shape → finding.
+  Hints are advice text; test-only groups across crates suggest a
+  test-support dev-dependency, across test targets of one crate (by path:
+  `src/`, each `tests/`/`benches/` entry, `test_target`) a shared test
+  module. Notes are
   counted apart (`duplicate_notes`). `excluded_duplicates` counts groups
   substance removed (only groups that were duplicates by text size).
 - **Table-driven-test candidates (`parametrize`): an exact claim.** Tests
@@ -366,7 +377,17 @@ bloaty's; when a claim would need them, bloaty makes none (counted in
   `#[cfg(unix)]` and `#[cfg(target_family = "unix")]` differ. Bodies
   differing only in literals are data, never duplicates. bloaty doesn't
   check whether copies can call each other (visibility, re-exports,
-  types).
+  types). Recall paid for precision (corpus audits, 2026-10-17): below
+  `--min-dup`, identical free fns / inherent methods under
+  `MIN_CALLABLE_DUP` (7) lines after the signature aren't duplicates (the
+  1–6 liners marked were idioms: `would_block`, `total_of`; the smallest
+  yes was 7); same-shape test code is a note because in the audits every
+  one was a mirrored test (or a test's reference copy of an impl fn);
+  test-only groups with one copy per crate are findings only from
+  `MIN_SHAPE_LINES` (15) lines (short shared test helpers: keypairs,
+  `body_json`). Test targets aren't treated like crates: which targets
+  reach a file needs the module walk per target (`tests/common/mod.rs`
+  is in each that declares it), so they only pick the hint.
 
 ## Invariants
 

@@ -166,40 +166,40 @@ local function test_column()
     return #column("core/src/hot.rs") > 0
   end)
   -- The bar is the node's share of its directory's impl lines (core/src:
-  -- 811): hot.rs 80 (9.9%), routes.rs 75 (9.2%), badarm.rs / long.rs 43
-  -- (5.3%), shapes.rs 24 (3.0%, just under 3%), f01.rs 13 (under 20).
-  eq(column("core/src/hot.rs"), { " ", "●", "▄ " }, "column: hot file has its bar and dot")
-  eq(column("core/src/shapes.rs"), { "•", " ", "  " }, "column: findings mark on shapes.rs (under 3%: no bar)")
-  eq(column("core/src/badarm.rs"), { " ", "●", "▂ " }, "column: warm file has a dot")
-  eq(column("core/src/routes.rs"), { " ", "●", "▄ " }, "column: noted file has a dot")
+  -- 858): hot.rs 80 (9.3%), routes.rs 75 (8.7%), badarm.rs / long.rs 43
+  -- (5.0%), shapes.rs 24 (2.8%), f01.rs 13 (under 20).
+  eq(column("core/src/hot.rs"), { " ", "●", "   80", "▄ " }, "column: hot file has its bar and dot")
+  eq(column("core/src/shapes.rs"), { "•", " ", "   24", "  " }, "column: findings mark on shapes.rs (under 3%: no bar)")
+  eq(column("core/src/badarm.rs"), { " ", "●", "   43", "▂ " }, "column: warm file has a dot")
+  eq(column("core/src/routes.rs"), { " ", "●", "   75", "▄ " }, "column: noted file has a dot")
   local function hl(rel, i)
     return tree.component({}, node(rel), state, 200)[i].highlight
   end
   eq({ hl("core/src/hot.rs", 2), hl("core/src/badarm.rs", 2), hl("core/src/routes.rs", 2) },
     { "BloatySmellHot", "BloatySmellWarm", "BloatySmellNoted" }, "column: dot colours hot / warm / noted")
-  eq(column("core/src/long.rs"), { " ", " ", "▂ " }, "column: a long fn under the bar is plain")
-  eq(column("core/src/f01.rs"), { " ", " ", "  " }, "column: under 20 lines: no bar")
-  eq(column("core/src", "directory"), { "•", "●", "█ " }, "column: directory inherits hot, bar by share (811 of core's 826)")
-  eq(column("app", "directory"), { "•", " ", "▂ " }, "column: directory bar by share (63 of 889)")
-  eq(column("app/src/main.rs"), { " ", " ", "█ " }, "column: file bar by share (38 of app/src's 49)")
-  eq(column(""), { "•", " ", "  " }, "column: root row never gets a dot or a bar")
+  eq(column("core/src/long.rs"), { " ", " ", "   43", "▂ " }, "column: a long fn under the bar is plain")
+  eq(column("core/src/f01.rs"), { " ", " ", "   13", "  " }, "column: under 20 lines: no bar")
+  eq(column("core/src", "directory"), { "•", "●", "  858", "▆ " }, "column: directory inherits hot, bar by share (858 of core's 873)")
+  eq(column("app", "directory"), { "•", " ", "   63", "▂ " }, "column: directory bar by share (63 of 936)")
+  eq(column("app/src/main.rs"), { " ", " ", "   38", "▆ " }, "column: file bar by share (38 of app/src's 49)")
+  eq(column(""), { "•", " ", "  936", "  " }, "column: root row never gets a dot or a bar")
   -- Size is information: never a diagnostic colour, whatever the share.
   for _, rel in ipairs({ "core/src/hot.rs", "core/src/f01.rs", "app/src/main.rs", "core/src", "" }) do
-    local h = hl(rel, 3)
+    local h = hl(rel, 3) == hl(rel, 4) and hl(rel, 4)
     if h ~= "BloatySize" or vim.fn.synIDattr(vim.fn.synIDtrans(vim.fn.hlID(h)), "name"):find("^Diagnostic") then
-      die("column: size bar of " .. rel .. " uses " .. h)
+      die("column: size of " .. rel .. " uses " .. tostring(h))
     end
   end
-  ok("column: size bar is BloatySize, never Diagnostic*")
+  ok("column: size count and bar are BloatySize, never Diagnostic*")
   eq(vim.api.nvim_get_hl(0, { name = "BloatySize" }).link, "NeoTreeDimText", "column: BloatySize links to neo-tree's dim text")
   local widths = {}
   for _, rel in ipairs({ "core/src/hot.rs", "core/src/shapes.rs", "core/src/f01.rs", "core/src", "" }) do
     table.insert(widths, vim.fn.strwidth(table.concat(column(rel, rel:find("%.rs$") and nil or "directory"))))
   end
-  eq(widths, { 4, 4, 4, 4, 4 }, "column: same width on every row, so bars line up")
-  local narrow = tree.component({}, node("core/src/hot.rs"), state, #"hot.rs" + 4)
+  eq(widths, { 9, 9, 9, 9, 9 }, "column: same width on every row, so counts and bars line up")
+  local narrow = tree.component({}, node("core/src/hot.rs"), state, #"hot.rs" + 9)
   eq(narrow, {}, "column: dropped whole when the name leaves no room")
-  eq(#tree.component({}, node("core/src/hot.rs"), state, #"hot.rs" + 5), 3, "column: shown with 5 columns to spare")
+  eq(#tree.component({}, node("core/src/hot.rs"), state, #"hot.rs" + 10), 4, "column: shown with 10 columns to spare")
   eq(column("Cargo.toml"), {}, "column: nothing on non-Rust files")
   eq(column("core/tests/table.rs"), {}, "column: no mark for table-driven-test candidates (test code)")
   eq(column("core/tests/setup.rs"), {}, "column: no mark for fixture candidates (test code)")
@@ -223,8 +223,8 @@ local function test_column()
   wait("the lone root's runs", function()
     return #column("src", "directory") > 0
   end)
-  eq({ column("src", "directory")[3], column("src/a.rs")[3], column("src/b.rs")[3], column("src/c.rs")[3] },
-    { "  ", "█ ", "▆ ", "  " }, "column: only child has no bar; a.rs 60 / b.rs 30 of 103, c.rs under 20")
+  eq({ column("src", "directory")[4], column("src/a.rs")[4], column("src/b.rs")[4], column("src/c.rs")[4] },
+    { "  ", "▆ ", "▄ ", "  " }, "column: only child has no bar; a.rs 60 / b.rs 30 of 103 (29%), c.rs under 20")
   state.path = ws
 
 end
@@ -275,13 +275,16 @@ local function test_lens()
   vim.cmd.edit("core/src/dup_a.rs")
   eq(marks(), {
     [3] = "◂ duplicate of adler() · src/dup_b.rs:3 +1",
-    [16] = "◂ duplicate of add() · line 18",
-    [18] = "◂ duplicate of plus() · line 16",
-  }, "lens: impl copies of finding-tier duplicates; the test copy (line 23) and the note (Left/Right::twice) are unmarked")
+    [96] = "◂ duplicate of blend() · line 105",
+    [105] = "◂ duplicate of mix() · line 96",
+  }, "lens: impl copies of finding-tier duplicates; the test copy (line 23), the notes (Left/Right::twice, spread) and plus/add (too short) are unmarked")
 
   vim.cmd.edit("app/src/dup_b.rs")
   eq(marks(), { [3] = "◂ duplicate of checksum() · src/dup_a.rs:3 +1" },
     "lens: a copy in another crate names one (at most two path components)")
+
+  vim.cmd.edit("core/tests/it.rs")
+  eq(marks(), {}, "lens: test code is never marked")
 
   vim.cmd.edit("core/src/f01.rs")
   eq(marks(), {}, "lens: no marks on a cool file")
@@ -335,19 +338,23 @@ local function test_quickfix()
     "3 duplicate of adler() · src/dup_b.rs:3 +1",
     "3   copy: adler() · src/dup_b.rs:3",
     "23   copy: reference() · line 23",
-    "16 duplicate of add() · line 18",
-    "18   copy: add() · line 18",
-    "18 duplicate of plus() · line 16",
-    "16   copy: plus() · line 16",
     "23 duplicate of adler() · src/dup_b.rs:3 +1",
     "3   copy: adler() · src/dup_b.rs:3",
     "3   copy: checksum() · line 3",
+    "96 duplicate of blend() · line 105",
+    "105   copy: blend() · line 105",
+    "105 duplicate of mix() · line 96",
+    "96   copy: mix() · line 96",
     "73 note: Left::twice() | Right::twice() · identical · signatures differ: Self type"
       .. " · same body on different types: a shared helper or a generic impl may fit; often by design",
-    "77   copy: Right::twice() · line 77",
-    "77 note: Left::twice() | Right::twice() · identical · signatures differ: Self type"
+    "84   copy: Right::twice() · line 84",
+    "84 note: Left::twice() | Right::twice() · identical · signatures differ: Self type"
       .. " · same body on different types: a shared helper or a generic impl may fit; often by design",
     "73   copy: Left::twice() · line 73",
+    "116 note: spread(), spread_ref() · same shape",
+    "136   copy: spread_ref() · line 136",
+    "136 note: spread(), spread_ref() · same shape",
+    "116   copy: spread() · line 116",
   }, "quickfix: duplicate findings with their copies, then notes with their facts")
 
   local claim = ": one test over a table (or a helper taking them)"
@@ -434,7 +441,7 @@ local function test_explain()
     die("B: dup_b.rs max cognitive\n  want: " .. want .. "\n  got:  " .. said)
   end
   ok("B: max cognitive complexity")
-  for _, c in ipairs({ { "core/src/hot.rs", nil, "hot.rs: 80 impl lines" }, { "core/src", "directory", "src: 811 impl lines" } }) do
+  for _, c in ipairs({ { "core/src/hot.rs", nil, "hot.rs: 80 impl lines" }, { "core/src", "directory", "src: 858 impl lines" } }) do
     local n = #notes
     tree.explain(vim.tbl_extend("force", state, {
       tree = { get_node = function() return node(c[1], c[2]) end },

@@ -1,7 +1,7 @@
 {
   "duplicate_notes": {
-    "shown": 1,
-    "total": 1
+    "shown": 4,
+    "total": 4
   },
   "excluded_duplicates": {
     "substance": 1
@@ -23,6 +23,7 @@
           "end_line": 13,
           "file": "app/src/dup_b.rs",
           "line": 3,
+          "lines": 10,
           "name": "adler",
           "path": "<ws>/app/src/dup_b.rs",
           "signature": {
@@ -41,6 +42,7 @@
           "end_line": 13,
           "file": "core/src/dup_a.rs",
           "line": 3,
+          "lines": 10,
           "name": "checksum",
           "path": "<ws>/core/src/dup_a.rs",
           "signature": {
@@ -59,6 +61,7 @@
           "end_line": 33,
           "file": "core/src/dup_a.rs",
           "line": 23,
+          "lines": 10,
           "name": "reference",
           "path": "<ws>/core/src/dup_a.rs",
           "signature": {
@@ -104,10 +107,11 @@
         {
           "class": 0,
           "crate": "fxcore",
-          "end_line": 16,
+          "end_line": 103,
           "file": "core/src/dup_a.rs",
-          "line": 16,
-          "name": "plus",
+          "line": 96,
+          "lines": 7,
+          "name": "mix",
           "path": "<ws>/core/src/dup_a.rs",
           "signature": {
             "params": [
@@ -117,16 +121,17 @@
             "receiver": "none",
             "ret": "u32"
           },
-          "start_line": 15,
+          "start_line": 94,
           "test": false
         },
         {
           "class": 0,
           "crate": "fxcore",
-          "end_line": 18,
+          "end_line": 112,
           "file": "core/src/dup_a.rs",
-          "line": 18,
-          "name": "add",
+          "line": 105,
+          "lines": 7,
+          "name": "blend",
           "path": "<ws>/core/src/dup_a.rs",
           "signature": {
             "params": [
@@ -136,7 +141,7 @@
             "receiver": "none",
             "ret": "u32"
           },
-          "start_line": 18,
+          "start_line": 105,
           "test": false
         }
       ],
@@ -144,19 +149,19 @@
       "crates": [
         "fxcore"
       ],
-      "detail": "2 identical fns; a helper both can call; up to ~1 lines saved",
-      "end_line": 16,
+      "detail": "2 identical fns; a helper both can call; up to ~7 lines saved",
+      "end_line": 103,
       "file": "core/src/dup_a.rs",
       "hint": "a helper both can call",
       "identical": true,
       "kind": "duplicate",
-      "line": 16,
-      "lines": 1,
-      "lines_saved": 1,
-      "name": "plus",
+      "line": 96,
+      "lines": 7,
+      "lines_saved": 7,
+      "name": "mix",
       "path": "<ws>/core/src/dup_a.rs",
       "rule": "identical",
-      "start_line": 15,
+      "start_line": 94,
       "tier": "finding"
     },
     {
@@ -165,9 +170,10 @@
         {
           "class": 0,
           "crate": "fxcore",
-          "end_line": 73,
+          "end_line": 80,
           "file": "core/src/dup_a.rs",
           "line": 73,
+          "lines": 7,
           "name": "Left::twice",
           "path": "<ws>/core/src/dup_a.rs",
           "signature": {
@@ -182,9 +188,10 @@
         {
           "class": 1,
           "crate": "fxcore",
-          "end_line": 77,
+          "end_line": 91,
           "file": "core/src/dup_a.rs",
-          "line": 77,
+          "line": 84,
+          "lines": 7,
           "name": "Right::twice",
           "path": "<ws>/core/src/dup_a.rs",
           "signature": {
@@ -193,7 +200,7 @@
             "ret": "u32",
             "self_ty": "Right"
           },
-          "start_line": 77,
+          "start_line": 84,
           "test": false
         }
       ],
@@ -205,18 +212,205 @@
       "differs": [
         "self_type"
       ],
-      "end_line": 73,
+      "end_line": 80,
       "file": "core/src/dup_a.rs",
       "hint": "same body on different types: a shared helper or a generic impl may fit; often by design",
       "identical": true,
       "kind": "duplicate",
       "line": 73,
-      "lines": 1,
-      "lines_saved": 1,
+      "lines": 7,
+      "lines_saved": 7,
       "name": "Left::twice",
       "path": "<ws>/core/src/dup_a.rs",
       "rule": "signatures",
       "start_line": 73,
+      "tier": "note"
+    },
+    {
+      "category": "impl",
+      "copies": [
+        {
+          "class": 0,
+          "crate": "fxcore",
+          "end_line": 132,
+          "file": "core/src/dup_a.rs",
+          "line": 116,
+          "lines": 16,
+          "name": "spread",
+          "path": "<ws>/core/src/dup_a.rs",
+          "signature": {
+            "params": [
+              "&[u32]"
+            ],
+            "receiver": "none",
+            "ret": "u32"
+          },
+          "start_line": 114,
+          "test": false
+        },
+        {
+          "class": 0,
+          "crate": "fxcore",
+          "end_line": 152,
+          "file": "core/src/dup_a.rs",
+          "line": 136,
+          "lines": 16,
+          "name": "spread_ref",
+          "path": "<ws>/core/src/dup_a.rs",
+          "signature": {
+            "params": [
+              "&[u32]"
+            ],
+            "receiver": "none",
+            "ret": "u32"
+          },
+          "start_line": 136,
+          "test": true
+        }
+      ],
+      "crate": "fxcore",
+      "crates": [
+        "fxcore"
+      ],
+      "detail": "2 fns with the same shape, mirrored in test code (names/literals differ)",
+      "end_line": 132,
+      "file": "core/src/dup_a.rs",
+      "identical": false,
+      "kind": "duplicate",
+      "line": 116,
+      "lines": 16,
+      "lines_saved": 16,
+      "name": "spread",
+      "path": "<ws>/core/src/dup_a.rs",
+      "rule": "test_shape",
+      "start_line": 114,
+      "tier": "note"
+    },
+    {
+      "category": "test",
+      "copies": [
+        {
+          "class": 0,
+          "crate": "fxapp",
+          "end_line": 58,
+          "file": "app/src/main.rs",
+          "line": 48,
+          "lines": 10,
+          "name": "sample_ids",
+          "path": "<ws>/app/src/main.rs",
+          "signature": {
+            "params": [
+              "u32"
+            ],
+            "receiver": "none",
+            "ret": "Vec<u32>"
+          },
+          "start_line": 46,
+          "test": true
+        },
+        {
+          "class": 0,
+          "crate": "fxcore",
+          "end_line": 61,
+          "file": "core/tests/it.rs",
+          "line": 51,
+          "lines": 10,
+          "name": "sample_ids",
+          "path": "<ws>/core/tests/it.rs",
+          "signature": {
+            "params": [
+              "u32"
+            ],
+            "receiver": "none",
+            "ret": "Vec<u32>"
+          },
+          "start_line": 50,
+          "test": true
+        }
+      ],
+      "crate": "fxapp",
+      "crates": [
+        "fxapp",
+        "fxcore"
+      ],
+      "depends": [
+        [
+          "fxapp",
+          "fxcore"
+        ]
+      ],
+      "detail": "2 short identical test fns; in fxapp, fxcore; fxapp depends on fxcore",
+      "end_line": 58,
+      "file": "app/src/main.rs",
+      "identical": true,
+      "kind": "duplicate",
+      "line": 48,
+      "lines": 10,
+      "lines_saved": 10,
+      "name": "sample_ids",
+      "path": "<ws>/app/src/main.rs",
+      "rule": "test_crates",
+      "start_line": 46,
+      "tier": "note"
+    },
+    {
+      "category": "test",
+      "copies": [
+        {
+          "class": 0,
+          "crate": "fxcore",
+          "end_line": 31,
+          "file": "core/tests/it.rs",
+          "line": 16,
+          "lines": 15,
+          "name": "evens",
+          "path": "<ws>/core/tests/it.rs",
+          "signature": {
+            "params": [
+              "&[u32]"
+            ],
+            "receiver": "none",
+            "ret": "Vec<u32>"
+          },
+          "start_line": 15,
+          "test": true
+        },
+        {
+          "class": 0,
+          "crate": "fxcore",
+          "end_line": 48,
+          "file": "core/tests/it.rs",
+          "line": 33,
+          "lines": 15,
+          "name": "odds",
+          "path": "<ws>/core/tests/it.rs",
+          "signature": {
+            "params": [
+              "&[u32]"
+            ],
+            "receiver": "none",
+            "ret": "Vec<u32>"
+          },
+          "start_line": 33,
+          "test": true
+        }
+      ],
+      "crate": "fxcore",
+      "crates": [
+        "fxcore"
+      ],
+      "detail": "2 fns with the same shape, mirrored in test code (names/literals differ)",
+      "end_line": 31,
+      "file": "core/tests/it.rs",
+      "identical": false,
+      "kind": "duplicate",
+      "line": 16,
+      "lines": 15,
+      "lines_saved": 15,
+      "name": "evens",
+      "path": "<ws>/core/tests/it.rs",
+      "rule": "test_shape",
+      "start_line": 15,
       "tier": "note"
     },
     {
@@ -578,7 +772,7 @@
   ],
   "hidden_pub": 0,
   "root": "<ws>",
-  "schema": 13,
+  "schema": 14,
   "shown": {
     "duplicate": 2,
     "fixture": 4,

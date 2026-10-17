@@ -1,7 +1,7 @@
 -- bloaty in Neovim: where the code of a Rust project lives, and where it is
 -- bloated, at a glance. This module runs bloaty and caches its answers per
 -- root; the views read them:
---   lua/mbloaty/tree.lua  the neo-tree column: a dim bar `▂ ▄ ▆ █` for
+--   lua/mbloaty/tree.lua  the neo-tree column: a dim line count and bar `▂ ▄ ▆` for
 --                         a file's or directory's share of the
 --                         implementation lines (tests, docs and comments
 --                         excluded) of the directory it's in (blank under
@@ -79,7 +79,7 @@ local MARK_KINDS = { duplicate = true, unused = true, single_impl_trait = true }
 local DEBOUNCE_MS = 1500
 -- The `--json` format this code reads (bloaty's `schema` field). Older or
 -- unversioned output is refused, not misread.
-local SCHEMA = 13
+local SCHEMA = 14
 -- Called with (dir, root data) when a root's runs finish (the lens).
 local listeners = {}
 

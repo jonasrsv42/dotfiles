@@ -1,8 +1,9 @@
 //! `duplicate`: the same code more than once. A claim of exact, syntactic
 //! sameness: identical bodies (or, for long ones, the same shape) with the
 //! same written signature, each copy with some logic of its own. Equal
-//! bodies under different signatures, or of different shape-only cfg
-//! variants, are reported as notes. Names aren't resolved (a `CODES` or
+//! bodies under different signatures, shape-only cfg variants, same-shape
+//! groups of test code with at most one impl copy, and short test-only
+//! groups with one copy per crate are reported as notes. Names aren't resolved (a `CODES` or
 //! `helper` meaning different items in two files still matches), and
 //! whether a copy could call another (visibility, re-exports, types) is
 //! never judged: that needs rust-analyzer.
@@ -23,11 +24,25 @@ use crate::visit::{BodyHash, FnFact, FnKind};
 use policy::Facts;
 use serde::Serialize;
 use std::collections::{BTreeSet, HashMap, HashSet};
+use std::path::Path;
 
 /// The least logic (see `visit::body::logic`) a body needs to count as a
 /// duplicate: forwarding bodies and `{}` / `{ x }` / `Default::default()`
 /// have none.
 pub(crate) const MIN_LOGIC: u32 = 1;
+
+/// Lines after the signature an identical free fn or inherent method of
+/// impl code needs below --min-dup: shorter ones (`would_block`, a
+/// one-line sum) are idioms, not helpers worth sharing (audit: every
+/// marked one under 7 was a no, every yes at least 7).
+pub(crate) const MIN_CALLABLE_DUP: usize = 7;
+
+/// Own code lines (signature included) a body needs to match by shape;
+/// shorter ones match by accident (every builder setter looks alike).
+/// A test-only group with one copy per crate needs as many lines after
+/// the signature to be a finding: shorter, they're small helpers each
+/// crate's tests keep (bumbum's keypairs, `body_json`).
+pub(crate) const MIN_SHAPE_LINES: usize = 15;
 
 /// A duplicate's facts (flattened into its finding's JSON).
 #[derive(Serialize, Debug)]
@@ -57,6 +72,8 @@ pub struct Duplicate {
 pub struct Copy {
     #[serde(flatten)]
     pub at: Loc,
+    /// Code lines after the signature (at least 1), as the finding's `lines`.
+    pub lines: usize,
     pub test: bool,
     /// Its non-test cfgs (its file's `mod` declarations', then its own), as
     /// written.
@@ -85,18 +102,18 @@ impl Member<'_> {
         self.func.body_hash.expect("members have body hashes")
     }
 
-    /// Identical free fns and inherent methods of impl code count however
-    /// short (`fn add(a, b) { a + b }`).
+    /// Identical free fns and inherent methods of impl code count from
+    /// `MIN_CALLABLE_DUP` lines after the signature, even below `min_dup`.
     fn short_candidate(&self) -> bool {
         let callable = matches!(self.func.kind, FnKind::Free | FnKind::Inherent);
-        callable && !self.test && self.func.logic >= MIN_LOGIC
+        callable && !self.test && self.func.logic >= MIN_LOGIC && self.substance >= MIN_CALLABLE_DUP
     }
 
     /// Enough of a body to be a duplicate: `min_dup` lines after the
     /// signature and some logic, or a short candidate's identical copy.
     fn substantive(&self, identical: bool, min_dup: usize) -> bool {
-        let any_size = identical && self.short_candidate();
-        self.func.logic >= MIN_LOGIC && (self.substance >= min_dup || any_size)
+        let short = identical && self.short_candidate();
+        self.func.logic >= MIN_LOGIC && (self.substance >= min_dup || short)
     }
 
     /// Code lines shown and saved: the body after the signature (a one-line
@@ -162,8 +179,8 @@ pub(super) fn duplicates(cx: &mut Cx, out: &mut Vec<Finding>) {
 }
 
 /// Groups of member indices with identical bodies (`true`), then groups with
-/// the same shape (`false`). Same shape only counts for longer bodies (short
-/// ones match by accident: every builder setter looks alike) and not for
+/// the same shape (`false`). Same shape only counts for longer bodies
+/// (`MIN_SHAPE_LINES`) and not for
 /// bodies differing only in literals: those are data tables (`match` arms
 /// mapping to different strings, queries with different SQL).
 fn duplicate_groups(members: &[Member], min_dup: usize) -> Vec<(Vec<usize>, bool)> {
@@ -179,7 +196,7 @@ fn duplicate_groups(members: &[Member], min_dup: usize) -> Vec<(Vec<usize>, bool
     }
     let mut shape: HashMap<u64, Vec<usize>> = HashMap::new();
     for (i, m) in members.iter().enumerate() {
-        if !grouped.contains(&i) && m.lines >= min_dup.max(15) {
+        if !grouped.contains(&i) && m.lines >= min_dup.max(MIN_SHAPE_LINES) {
             shape.entry(m.hash().shape).or_default().push(i);
         }
     }
@@ -231,10 +248,23 @@ fn duplicate_finding(cx: &Cx, mut ms: Vec<&Member>, identical: bool) -> Finding 
         // crates' features.
         cfgs_differ: cfg_sets.len() > 1 && crates.len() == 1,
         crates: crates.len(),
+        copies: ms.len(),
+        impl_copies: ms.iter().filter(|m| !m.test).count(),
+        crowded: {
+            let idx: HashSet<Option<usize>> = ms.iter().map(|m| m.file.crate_idx).collect();
+            idx.len() < ms.len()
+        },
+        lines: ms.iter().map(|m| m.shown()).min().unwrap_or(0),
+        test_targets: ms
+            .iter()
+            .map(|m| (m.file.crate_idx, test_target(cx, m.file)))
+            .collect::<HashSet<_>>()
+            .len(),
     };
     let rule = Rule::of(&facts);
+    let test = facts.test();
     let hint = if facts.differs.is_empty() {
-        rule.hint()
+        rule.hint(&facts)
     } else {
         facts.differs.iter().find_map(|&p| policy::part_hint(p))
     };
@@ -258,6 +288,7 @@ fn duplicate_finding(cx: &Cx, mut ms: Vec<&Member>, identical: bool) -> Finding 
             .zip(classes)
             .map(|(m, class)| Copy {
                 at: Loc::of_fn(cx.scan, m.file, m.func),
+                lines: m.shown(),
                 test: m.test,
                 cfgs: m.cfgs.clone(),
                 signature: m.func.signature.clone(),
@@ -272,12 +303,34 @@ fn duplicate_finding(cx: &Cx, mut ms: Vec<&Member>, identical: bool) -> Finding 
         detail,
         ..Finding::new(
             Kind::Duplicate,
-            category(ms.iter().all(|m| m.test)),
+            category(test),
             Loc::of_fn(cx.scan, first.file, first.func),
         )
     }
     // Notes last; identical groups first: same-shape ones are harder to merge.
     .rank(u32::from(note) * 2 + u32::from(!identical), saved)
+}
+
+/// The test target a file is in, by path: `tests/x` or `benches/x` for
+/// files under its crate's `tests/x.rs`, `tests/x/` (and benches), else
+/// `src` (the lib's or a bin's `cfg(test)` code). A hint's fact only:
+/// `tests/common/mod.rs` reads as its own target.
+fn test_target(cx: &Cx, file: &FileAnalysis) -> String {
+    let dir = file.crate_idx.map(|c| &cx.scan.crates[c].dir);
+    let rel = dir.and_then(|d| file.path.strip_prefix(d).ok());
+    let mut parts = rel.into_iter().flat_map(|r| r.components());
+    match (parts.next(), parts.next()) {
+        (Some(top), Some(entry)) if top.as_os_str() == "tests" || top.as_os_str() == "benches" => {
+            let entry = Path::new(entry.as_os_str());
+            let stem = entry.file_stem().unwrap_or(entry.as_os_str());
+            format!(
+                "{}/{}",
+                top.as_os_str().to_string_lossy(),
+                stem.to_string_lossy()
+            )
+        }
+        _ => "src".to_string(),
+    }
 }
 
 /// Each copy's signature class: the index of its signature among the
@@ -490,8 +543,9 @@ mod tests {
         );
     }
 
+    /// One-line bodies are under --min-dup and `MIN_CALLABLE_DUP` alike.
     #[test]
-    fn short_bodies_count_by_logic() {
+    fn one_line_bodies_are_no_duplicates() {
         let src = "struct A;\nstruct B;\ntrait T { fn t(&self, a: u32, b: u32) -> u32; }\n\
             fn add(a: u32, b: u32) -> u32 { a + b }\n\
             fn plus(a: u32, b: u32) -> u32 { a + b }\n\
@@ -502,8 +556,71 @@ mod tests {
             fn i1(x: u32) -> u32 { x }\n\
             fn i2(x: u32) -> u32 { x }\n";
         let (dups, _) = dups(&[("Cargo.toml", PKG), ("src/lib.rs", src)]);
-        assert_eq!(summary(&dups), [(vec!["add", "plus"], Rule::Identical)]);
-        assert_eq!(dups[0].dup.as_ref().unwrap().lines_saved, 1);
+        assert!(dups.is_empty(), "{dups:#?}");
+    }
+
+    /// Below --min-dup, identical free fns and inherent methods count from
+    /// `MIN_CALLABLE_DUP` lines after the signature, if they have logic;
+    /// trait methods and test code don't.
+    #[test]
+    fn short_callables_need_min_callable_dup_lines() {
+        // `n` statements and the tail: `n + 2` lines after the signature
+        // (the closing brace counts); `k` keeps pairs apart.
+        let f = |sig: &str, n: usize, k: usize| {
+            let lines: String = (0..n)
+                .map(|i| format!("    let x = x + {k}{i};\n"))
+                .collect();
+            format!("{sig} {{\n{lines}    x\n}}\n")
+        };
+        assert_eq!(super::MIN_CALLABLE_DUP, 7);
+        // 8 lines after the signature each, no logic: forwarding, defaults.
+        let fw = |name: &str| {
+            format!(
+                "fn {name}(a: u32, b: u32, c: u32, d: u32, e: u32) -> u32 {{\n    target(\n        a,\n        b,\n        c,\n        d,\n        e,\n    )\n}}\n"
+            )
+        };
+        let df = |name: &str| {
+            let fields: String = "abcde"
+                .chars()
+                .map(|c| format!("        {c}: Default::default(),\n"))
+                .collect();
+            format!("fn {name}() -> Cfg {{\n    Cfg {{\n{fields}    }}\n}}\n")
+        };
+        let no_logic = [fw("fw1"), fw("fw2"), df("df1"), df("df2")].concat();
+        let src = format!(
+            "struct S;\ntrait T {{ fn t(&self, x: u32) -> u32; }}\n{}{}{}{}impl S {{\n{}{}}}\n\
+             struct A;\nstruct B;\nimpl T for A {{\n{}}}\nimpl T for B {{\n{}}}\n\
+             #[cfg(test)]\nmod tests {{\n{}{}}}\n{no_logic}",
+            f("fn six(x: u32) -> u32", 4, 1),
+            f("fn six2(x: u32) -> u32", 4, 1),
+            f("fn seven(x: u32) -> u32", 5, 2),
+            f("fn seven2(x: u32) -> u32", 5, 2),
+            f("fn m(&self, x: u32) -> u32", 5, 3),
+            f("fn m2(&self, x: u32) -> u32", 5, 3),
+            f("fn t(&self, x: u32) -> u32", 5, 4),
+            f("fn t(&self, x: u32) -> u32", 5, 4),
+            f("fn tc(x: u32) -> u32", 5, 5),
+            f("fn tc2(x: u32) -> u32", 5, 5),
+        );
+        let fx = Fixture::new(&[("Cargo.toml", PKG), ("src/lib.rs", &src)]);
+        let o = crate::findings::Options {
+            min_dup: 8,
+            ..opts(true)
+        };
+        let all = crate::findings::findings(&fx.scan(), &o);
+        let dups: Vec<_> = all
+            .all
+            .into_iter()
+            .filter(|f| f.kind == Kind::Duplicate)
+            .collect();
+        assert_eq!(
+            summary(&dups),
+            [
+                (vec!["seven", "seven2"], Rule::Identical),
+                (vec!["S::m", "S::m2"], Rule::Identical),
+            ]
+        );
+        assert_eq!(dups[0].lines, 7);
     }
 
     /// A long signature around a body that only forwards to `self` (areamy's
@@ -519,6 +636,65 @@ mod tests {
         let (dups, all) = dups(&[("Cargo.toml", PKG), ("src/lib.rs", &src)]);
         assert!(dups.is_empty(), "{dups:#?}");
         assert_eq!(all.excluded.get(&Criterion::Substance), Some(&1));
+    }
+
+    /// Short test code: one copy per crate is a note; a crate with two
+    /// copies keeps the group a finding whatever other crates hold, and
+    /// test-only hints don't promise a call between targets.
+    #[test]
+    fn short_test_code_in_crates_and_targets() {
+        let h = |name: &str| format!("fn {name}(x: u32) -> u32 {}", body("1", "v"));
+        let ws = "[workspace]\nmembers = [\"a\", \"b\"]\n";
+        let lib = format!("#[cfg(test)]\nmod t {{\n{}}}\n", h("h1"));
+        let (x, y) = (h("h2"), h("h3"));
+        let files = |with: &[&str]| -> Vec<Finding> {
+            let mut fs = vec![
+                ("Cargo.toml", ws),
+                ("a/Cargo.toml", "[package]\nname = \"a\"\n"),
+                ("b/Cargo.toml", "[package]\nname = \"b\"\n"),
+            ];
+            for (path, text) in [
+                ("a/src/lib.rs", lib.as_str()),
+                ("a/tests/x.rs", x.as_str()),
+                ("b/tests/y.rs", y.as_str()),
+            ] {
+                if with.contains(&path) {
+                    fs.push((path, text));
+                }
+            }
+            dups(&fs).0
+        };
+        let all = files(&["a/src/lib.rs", "a/tests/x.rs", "b/tests/y.rs"]);
+        assert_eq!(summary(&all), [(vec!["h1", "h2", "h3"], Rule::Crates)]);
+        let hint = all[0].dup.as_ref().unwrap().hint.unwrap();
+        assert!(hint.contains("dev-dependency"), "{hint}");
+        let one_crate = files(&["a/src/lib.rs", "a/tests/x.rs"]);
+        assert_eq!(summary(&one_crate), [(vec!["h1", "h2"], Rule::Identical)]);
+        let hint = one_crate[0].dup.as_ref().unwrap().hint.unwrap();
+        assert!(hint.contains("mod common"), "{hint}");
+        let spread = files(&["a/tests/x.rs", "b/tests/y.rs"]);
+        assert_eq!(summary(&spread), [(vec!["h2", "h3"], Rule::TestCrates)]);
+        assert_eq!(spread[0].dup.as_ref().unwrap().tier, Tier::Note);
+    }
+
+    /// Same shape with a test copy: a note while at most one copy is impl
+    /// code (a test's reference copy), a finding from two.
+    #[test]
+    fn same_shape_with_test_copies() {
+        let long = |name: &str, v: &str| {
+            let lines: String = (0..14)
+                .map(|i| format!("    let {v}{i} = x + {i};\n"))
+                .collect();
+            format!("fn {name}(x: u32) -> u32 {{\n{lines}    {v}0\n}}\n")
+        };
+        let test = format!("#[cfg(test)]\nmod t {{\n{}}}\n", long("k", "b"));
+        let one = format!("{}{test}", long("j", "a"));
+        let (dups1, _) = dups(&[("Cargo.toml", PKG), ("src/lib.rs", &one)]);
+        assert_eq!(summary(&dups1), [(vec!["j", "k"], Rule::TestShape)]);
+        assert_eq!(dups1[0].category, Category::Impl);
+        let two = format!("{}{}{test}", long("j", "a"), long("l", "c"));
+        let (dups2, _) = dups(&[("Cargo.toml", PKG), ("src/lib.rs", &two)]);
+        assert_eq!(summary(&dups2), [(vec!["j", "l", "k"], Rule::SameShape)]);
     }
 
     /// Test code repeating a real fn: one group with all copies, impl since
@@ -583,13 +759,21 @@ mod tests {
         );
     }
 
-    /// Short identical methods: the same code on one type; a note on two.
+    /// Identical methods: the same code on one type; a note on two.
     #[test]
-    fn short_methods_on_other_types_are_notes() {
-        let src = "struct A { n: u32 }\nstruct B { n: u32 }\n\
-            impl A { fn is_empty(&self) -> bool { self.n == 0 } }\n\
-            impl B { fn is_empty(&self) -> bool { self.n == 0 } }\n\
-            impl A { fn none(&self) -> bool { self.n == 0 } }\n";
+    fn methods_on_other_types_are_notes() {
+        let m = |ty: &str, name: &str| {
+            format!(
+                "impl {ty} {{\n    fn {name}(&self) -> bool {{\n        let m = self.n;\n        let k = m % 2;\n        k + m == 0\n    }}\n}}\n"
+            )
+        };
+        let src = format!(
+            "struct A {{ n: u32 }}\nstruct B {{ n: u32 }}\n{}{}{}",
+            m("A", "is_empty"),
+            m("B", "is_empty"),
+            m("A", "none")
+        );
+        let src = src.as_str();
         let (dups, _) = dups(&[("Cargo.toml", PKG), ("src/lib.rs", src)]);
         assert_eq!(
             summary(&dups),

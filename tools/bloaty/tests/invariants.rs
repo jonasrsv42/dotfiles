@@ -36,7 +36,11 @@
 //! - a duplicate has >= 2 distinct copies, the first at the finding; its
 //!   `rule` is known and its `tier` the rule's (notes: the copies'
 //!   signatures differ, `differs` says how, or their cfgs do; findings:
-//!   one signature); cfg rules only within one crate; the excluded counts
+//!   one signature); cfg rules only within one crate; every copy has at
+//!   least min(--min-dup, 7) lines, the finding its largest's; a same-shape
+//!   finding has two impl copies, `test_shape` at most one; a test-only
+//!   identical group with one copy per crate is `test_crates` exactly when
+//!   its smallest copy is under 15 lines; the excluded counts
 //!   name known criteria; findings and notes are counted apart.
 
 mod common;
@@ -219,7 +223,7 @@ fn check_findings(o: &Outputs, c: &mut Checked) {
         *per_kind.entry(counted).or_default() += 1;
         c.expect(KINDS.contains(&kind), || format!("finding kind {kind}"));
         if kind == "duplicate" {
-            check_duplicate(f, c);
+            check_duplicate(f, u(&o.findings["thresholds"]["min_dup"]), c);
         }
         if kind == "parametrize" {
             check_parametrize(f, u(&o.findings["thresholds"]["min_dup"]), c);
@@ -257,12 +261,21 @@ const RULES: &[(&str, &str)] = &[
     ("signatures", "note"),
     ("cfg_variants", "note"),
     ("cfg_identical", "finding"),
+    ("test_shape", "note"),
+    ("test_crates", "note"),
     ("crates", "finding"),
     ("identical", "finding"),
     ("same_shape", "finding"),
 ];
 
-fn check_duplicate(f: &Value, c: &mut Checked) {
+/// Lines after the signature an identical free fn or inherent method needs
+/// below --min-dup (src/findings/duplicate.rs `MIN_CALLABLE_DUP`).
+const MIN_CALLABLE_DUP: u64 = 7;
+/// The same-shape bar, which short test-only groups across crates need too
+/// (`MIN_SHAPE_LINES`).
+const MIN_SHAPE_LINES: u64 = 15;
+
+fn check_duplicate(f: &Value, min_dup: u64, c: &mut Checked) {
     let at = |l: &Value| (l["file"].clone(), l["line"].clone());
     let copies: Vec<_> = arr(&f["copies"]).iter().map(at).collect();
     let id = format!("duplicate {} {}", f["file"], f["line"]);
@@ -292,6 +305,40 @@ fn check_duplicate(f: &Value, c: &mut Checked) {
     c.expect(
         one_sig != differs && (rule == "signatures") == differs,
         || format!("{id}: one signature {one_sig}, differs {differs}, rule {rule}"),
+    );
+    // Every copy has substance; the finding's lines are its largest's.
+    let lines: Vec<u64> = arr(&f["copies"]).iter().map(|c| u(&c["lines"])).collect();
+    c.expect(
+        lines.iter().all(|&l| l >= min_dup.min(MIN_CALLABLE_DUP)),
+        || format!("{id}: copies of {lines:?} lines"),
+    );
+    c.expect(lines.iter().max() == Some(&u(&f["lines"])), || {
+        format!("{id}: lines {} of copies {lines:?}", f["lines"])
+    });
+    let copies = arr(&f["copies"]);
+    let impl_copies = copies.iter().filter(|c| c["test"] != true).count();
+    let identical = f["identical"] == true;
+    let per_crate: HashSet<_> = copies.iter().map(|c| c["crate"].to_string()).collect();
+    let one_per_crate = per_crate.len() == copies.len() && !one_crate;
+    let smallest = lines.iter().min().copied().unwrap_or(0);
+    // Same shape is a finding only with two impl copies.
+    c.expect(tier != "finding" || identical || impl_copies >= 2, || {
+        format!("{id}: same-shape finding with {impl_copies} impl copies")
+    });
+    c.expect(
+        rule != "test_shape" || (!identical && impl_copies < 2 && impl_copies < copies.len()),
+        || format!("{id}: test_shape with {impl_copies} impl copies, identical {identical}"),
+    );
+    // Test-only, one copy per crate: a note under 15 lines, a finding from.
+    if impl_copies == 0 && identical && one_per_crate && arr(&f["differs"]).is_empty() {
+        c.expect(
+            (rule == "test_crates") == (smallest < MIN_SHAPE_LINES),
+            || format!("{id}: {rule} with smallest copy of {smallest} lines"),
+        );
+    }
+    c.expect(
+        rule != "test_crates" || (impl_copies == 0 && identical && one_per_crate),
+        || format!("{id}: test_crates on impl code or a crate's two copies"),
     );
 }
 
