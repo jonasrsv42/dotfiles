@@ -350,6 +350,11 @@ impl LitKind {
     }
 }
 
+/// Keywords before a `!` negate: `return !(x)` is no macro.
+pub(super) const NEGATING: &[&str] = &[
+    "return", "break", "in", "if", "while", "match", "else", "yield",
+];
+
 /// A test body as a table row would replace it: its literals in order and
 /// its lines.
 pub struct TestBody {
@@ -378,10 +383,6 @@ pub(super) fn test_body(tokens: TokenStream, body_line: usize) -> TestBody {
     /// `name!` right before `tokens[i]` (a group): a macro invocation, and
     /// whether its tokens are opaque (`macros::EXPRESSION_MACROS` aren't).
     fn opaque_macro(tokens: &[TokenTree], i: usize) -> bool {
-        // Keywords before a `!` negate: `return !(x)`.
-        const NEGATING: &[&str] = &[
-            "return", "break", "in", "if", "while", "match", "else", "yield",
-        ];
         let (Some(TokenTree::Punct(bang)), Some(TokenTree::Ident(name))) =
             (tokens.get(i.wrapping_sub(1)), tokens.get(i.wrapping_sub(2)))
         else {

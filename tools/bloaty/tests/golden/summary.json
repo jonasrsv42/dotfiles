@@ -1646,6 +1646,17 @@
       "test": 11
     },
     {
+      "blank": 27,
+      "comment": 11,
+      "crate": "fxcore",
+      "doc": 0,
+      "files": 1,
+      "impl": 0,
+      "name": "core/tests/setup.rs",
+      "path": "<ws>/core/tests/setup.rs",
+      "test": 210
+    },
+    {
       "blank": 31,
       "comment": 16,
       "crate": "fxcore",
@@ -1659,16 +1670,16 @@
   ],
   "hidden": 0,
   "root": "<ws>",
-  "schema": 12,
+  "schema": 13,
   "sort": "impl",
   "test_features": [],
   "total": {
-    "blank": 107,
-    "comment": 25,
+    "blank": 134,
+    "comment": 36,
     "doc": 43,
-    "files": 40,
+    "files": 41,
     "impl": 889,
     "name": "total",
-    "test": 251
+    "test": 461
   }
 }

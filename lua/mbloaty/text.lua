@@ -1,6 +1,6 @@
 -- bloaty's words: the formatters shared by the tree's `B` explain
 -- (mbloaty.tree), the lens, its quickfix list and its float
--- (mbloaty.lens). Pure functions of bloaty's JSON (schema 12).
+-- (mbloaty.lens). Pure functions of bloaty's JSON (schema 13).
 
 local M = {}
 
@@ -310,15 +310,22 @@ local function count(n, word)
   return n == 1 and ("1 " .. word) or (n .. " " .. word .. "s")
 end
 
+-- What a candidate's test is to it: a table's `row`, or a test that
+-- `shares` a fixture candidate's opening.
+function M.member(f)
+  return f.kind == "fixture" and "shares" or "row"
+end
+
 -- A candidate's tests as list entries, each `{ path, line, text }`:
--- "  row 2/5: clamps_above() · line 16" (`· identical` for a copy).
+-- "  row 2/5: clamps_above() · line 16" (`· identical` for a copy),
+-- "  shares 2/3: opens_twice() · line 40".
 function M.table_rows(f, this)
   local out = {}
   for i, t in ipairs(f.tests) do
     table.insert(out, {
       path = t.path, line = t.line,
-      text = string.format("  row %d/%d: %s · %s%s", i, #f.tests, M.fn_name(t.name), M.where(t, this),
-        t.identical and " · identical" or ""),
+      text = string.format("  %s %d/%d: %s · %s%s", M.member(f), i, #f.tests, M.fn_name(t.name),
+        M.where(t, this), t.identical and " · identical" or ""),
     })
   end
   return out
@@ -359,6 +366,13 @@ function M.finding_note(f, this)
     note.ev = string.format("%d tests · %s", #f.tests, count(f.literals.differ, "literal"))
     -- bloaty's own sentence: one source of wording.
     note.list = "parametrize? " .. (f.detail or "")
+    return note
+  elseif f.kind == "fixture" then
+    -- Lens: `fixture? 3 tests share 6 statements`; lists: the whole claim
+    -- ("3 tests open with the same 6 statements (8 lines): one setup fn ...").
+    note.verdict = "fixture?"
+    note.ev = string.format("%d tests share %s", #f.tests, count(f.prefix.statements, "statement"))
+    note.list = "fixture? " .. (f.detail or "")
     return note
   else
     note.verdict = f.kind

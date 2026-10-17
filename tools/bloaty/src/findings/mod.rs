@@ -6,6 +6,7 @@
 //! its own submodule.
 
 pub(crate) mod duplicate;
+pub(crate) mod fixture;
 mod long_fn;
 pub(crate) mod parametrize;
 mod pass_through;
@@ -14,6 +15,7 @@ mod test_heavy;
 mod unused;
 
 pub use duplicate::{Duplicate, Tier};
+pub use fixture::Prefix;
 pub use parametrize::{Literals, Row};
 
 use crate::names::{Loc, short_name};
@@ -38,6 +40,7 @@ pub enum Kind {
     #[value(alias = "test_heavy")]
     TestHeavy,
     Parametrize,
+    Fixture,
     /// Opt-in: only with `--kind pass-through`.
     #[value(alias = "pass_through")]
     PassThrough,
@@ -62,7 +65,8 @@ pub struct Finding {
     /// Code lines involved: the item's own (plus its impl blocks for unused
     /// types), the largest copy's lines after its signature (at least 1)
     /// for duplicates, test lines for test-heavy, the tests' lines after
-    /// their signatures for parametrize.
+    /// their signatures for parametrize, the tests' lines in the shared
+    /// opening for fixture.
     pub lines: usize,
     /// Duplicates: tier, copies and their facts.
     #[serde(flatten)]
@@ -79,12 +83,16 @@ pub struct Finding {
     /// Traits: their impls. Unused types: impl blocks that go with them.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub impls: Option<Vec<Loc>>,
-    /// Parametrize: every test of the group, the finding's own first.
+    /// Parametrize, fixture: every test of the group, the finding's own
+    /// first.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tests: Option<Vec<Row>>,
     /// Parametrize: literal positions that differ between the tests.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub literals: Option<Literals>,
+    /// Fixture: the opening the tests share.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prefix: Option<Prefix>,
     /// Unused only: the crate has code bloaty can't see (generated code,
     /// unparsed files, unresolved modules) that may use this. Compile to
     /// confirm.
@@ -125,6 +133,7 @@ impl Finding {
             impls: None,
             tests: None,
             literals: None,
+            prefix: None,
             uncertain: false,
             detail: String::new(),
             rank: Rank::default(),
@@ -367,6 +376,8 @@ pub fn findings(scan: &Scan, opts: &Options) -> Findings {
     long_fn::long_fns(&mut cx, &duplicated, &mut out);
     test_heavy::test_heavy(&cx, &mut out);
     parametrize::parametrize(&cx, &mut out);
+    // After parametrize: a cluster wholly inside one candidate is left out.
+    fixture::fixture(&cx, &mut out);
     out.sort_by(|a, b| {
         (a.kind, a.rank, &a.at.file, a.at.line).cmp(&(b.kind, b.rank, &b.at.file, b.at.line))
     });
@@ -575,6 +586,7 @@ pub fn render(r: &Report, scan: &Scan) -> String {
                 Kind::LongFn => "Long functions",
                 Kind::TestHeavy => "Test-heavy files",
                 Kind::Parametrize => "Table-driven-test candidates",
+                Kind::Fixture => "Shared test setup (fixture candidates)",
             };
             let get = |m: &BTreeMap<Kind, usize>| m.get(&f.kind).copied().unwrap_or(0);
             let (mut n, mut total) = (get(&r.shown), get(&r.totals));
@@ -603,7 +615,7 @@ pub fn render(r: &Report, scan: &Scan) -> String {
             f.detail
         );
         // Other copies of a duplicate; impls of a trait or unused type;
-        // other tests of a table-driven-test candidate.
+        // other tests of a table-driven-test or fixture candidate.
         let others: Vec<&Loc> = match (&f.dup, &f.impls, &f.tests) {
             (Some(d), _, _) => d.copies.iter().skip(1).map(|c| &c.at).collect(),
             (None, Some(impls), _) => impls.iter().collect(),

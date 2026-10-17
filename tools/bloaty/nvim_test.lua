@@ -180,6 +180,7 @@ local function test_column()
   eq(column(""), { "•", " ", "  889 " }, "column: root row never gets a dot")
   eq(column("Cargo.toml"), {}, "column: nothing on non-Rust files")
   eq(column("core/tests/table.rs"), {}, "column: no mark for table-driven-test candidates (test code)")
+  eq(column("core/tests/setup.rs"), {}, "column: no mark for fixture candidates (test code)")
 
 end
 
@@ -246,6 +247,14 @@ local function test_lens()
     [81] = "◂ parametrize? 2 tests · 5 literals",
   }, "lens: table-driven-test candidates, on each group's first test only")
 
+  vim.cmd.edit("core/tests/setup.rs")
+  eq(marks(), {
+    [22] = "◂ fixture? 3 tests share 4 statements",
+    [98] = "◂ fixture? 3 tests share 5 statements",
+    [140] = "◂ fixture? 3 tests share 4 statements",
+    [168] = "◂ fixture? 3 tests share 9 statements",
+  }, "lens: fixture candidates, on each group's first test only")
+
 end
 
 local function test_quickfix()
@@ -307,6 +316,26 @@ local function test_quickfix()
     "81   row 1/2: sums_pairs() · line 81",
     "92   row 2/2: sums_triples() · line 92",
   }, "quickfix: a table-driven-test candidate, then each of its tests")
+
+  local setup = " lines): one setup fn they call"
+  eq(qf("core/tests/setup.rs"), {
+    "22 fixture? 3 tests open with the same 4 statements (4" .. setup,
+    "22   shares 1/3: totals_three_rows() · line 22",
+    "32   shares 2/3: removes_the_last_row() · line 32",
+    "42   shares 3/3: clears_every_row() · line 42",
+    "98 fixture? 3 tests open with the same 5 statements (5" .. setup,
+    "98   shares 1/3: queue_drains_in_order() · line 98",
+    "109   shares 2/3: queue_totals() · line 109",
+    "119   shares 3/3: queue_keeps_the_last() · line 119",
+    "140 fixture? 3 tests open with the same 4 statements (4" .. setup,
+    "140   shares 1/3: log_boots() · line 140",
+    "149   shares 2/3: log_loads() · line 149",
+    "158   shares 3/3: log_runs() · line 158",
+    "168 fixture? 3 tests open with the same 9 statements (9" .. setup,
+    "168   shares 1/3: log_replays() · line 168",
+    "182   shares 2/3: log_rotates() · line 182",
+    "197   shares 3/3: log_trims() · line 197",
+  }, "quickfix: fixture candidates, each with its tests")
 
   eq(qf("core/src/badarm.rs"), {
     "22 simplify? apply(): cognitive complexity 17 · arm Op::Rebalance 16",
@@ -383,6 +412,19 @@ local function test_explain()
     die("B: core/tests count\n  want: " .. want .. "\n  got:  " .. said)
   end
   ok("B: a directory counts its table-driven-test candidates")
+  said = explain("core/tests/setup.rs")
+  want = "fixture? 3 tests open with the same 9 statements (9 lines): one setup fn they call"
+    .. " · log_replays(), log_rotates(), log_trims()"
+  if not said:find(want, 1, true) then
+    die("B: setup.rs candidates\n  want: " .. want .. "\n  got:  " .. said)
+  end
+  ok("B: a file's fixture candidates with their tests")
+  said = explain("core/tests", "directory")
+  want = "4 fixture candidates (bloaty findings --kind fixture " .. ws .. "/core/tests)"
+  if not said:find(want, 1, true) then
+    die("B: core/tests fixture count\n  want: " .. want .. "\n  got:  " .. said)
+  end
+  ok("B: a directory counts its fixture candidates")
 end
 
 local function test_info()
@@ -451,6 +493,28 @@ local function test_info()
     "row 2/4",
   }, "<leader>bi on a test: the candidate covering it and its row")
   vim.api.nvim_win_close(float, true)
+
+  -- ...and on a test sharing a fixture candidate's opening.
+  vim.cmd.edit("core/tests/setup.rs")
+  vim.api.nvim_win_set_cursor(0, { 111, 0 })
+  lens.info()
+  float = nil
+  wait("the fixture test's info float", function()
+    for _, w in ipairs(vim.api.nvim_list_wins()) do
+      if vim.api.nvim_win_get_config(w).relative ~= "" then
+        float = w
+        return true
+      end
+    end
+  end)
+  lines = vim.api.nvim_buf_get_lines(vim.api.nvim_win_get_buf(float), 0, -1, false)
+  eq(lines, {
+    "queue_totals()",
+    "◂ fixture? 3 tests open with the same 5 statements (5 lines): one setup fn they call",
+    "shares 2/3",
+  }, "<leader>bi on a test: the fixture candidate covering it")
+  vim.api.nvim_win_close(float, true)
+  vim.cmd.edit("core/tests/table.rs")
 
   -- ...but not on a test helper (no candidate has it as a row).
   local before = #notes

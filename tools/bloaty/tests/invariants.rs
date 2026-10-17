@@ -43,7 +43,7 @@ mod common;
 
 use common::{Ws, run_json};
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 /// The number after `prefix` on the line starting with it in `file`
@@ -201,9 +201,12 @@ fn check_findings(o: &Outputs, c: &mut Checked) {
         "long_fn",
         "test_heavy",
         "parametrize",
+        "fixture",
         "pass_through",
     ];
     let mut per_kind: HashMap<&str, u64> = HashMap::new();
+    // Tests in a fixture finding: (file, line).
+    let mut in_fixture = HashSet::new();
     for f in arr(&o.findings["findings"]) {
         c.findings += 1;
         let kind = f["kind"].as_str().unwrap_or("");
@@ -220,6 +223,9 @@ fn check_findings(o: &Outputs, c: &mut Checked) {
         }
         if kind == "parametrize" {
             check_parametrize(f, u(&o.findings["thresholds"]["min_dup"]), c);
+        }
+        if kind == "fixture" {
+            check_fixture(f, &mut in_fixture, c);
         }
         let (s, l, e) = (u(&f["start_line"]), u(&f["line"]), u(&f["end_line"]));
         c.expect(s <= l && l <= e, || {
@@ -330,6 +336,48 @@ fn check_parametrize(f: &Value, min_dup: u64, c: &mut Checked) {
     });
     c.expect(u(&f["lines"]) == lines.iter().sum::<u64>(), || {
         format!("{id}: lines {} != its tests' {lines:?}", f["lines"])
+    });
+}
+
+/// A fixture candidate: at least 3 tests (the finding's own first, one
+/// file, test code, distinct names) opening with at least 4 statements,
+/// no test in two fixture findings; its lines are the tests' in the
+/// opening: the first test's and at least one per other test.
+fn check_fixture(f: &Value, seen: &mut HashSet<(String, u64)>, c: &mut Checked) {
+    let id = format!("fixture {} {}", f["file"], f["line"]);
+    let tests = arr(&f["tests"]);
+    let statements = u(&f["prefix"]["statements"]);
+    c.expect(tests.len() >= 3 && statements >= 4, || {
+        format!("{id}: {} tests, {statements} statements", tests.len())
+    });
+    c.expect(
+        tests
+            .first()
+            .is_some_and(|t| t["line"] == f["line"] && t["file"] == f["file"]),
+        || format!("{id}: not tests[0]"),
+    );
+    c.expect(tests.iter().all(|t| t["file"] == f["file"]), || {
+        format!("{id}: tests in several files")
+    });
+    c.expect(f["category"] == "test", || format!("{id}: not test code"));
+    let mut names: Vec<&str> = tests
+        .iter()
+        .map(|t| t["name"].as_str().unwrap_or(""))
+        .collect();
+    names.sort_unstable();
+    names.dedup();
+    c.expect(names.len() == tests.len(), || format!("{id}: names repeat"));
+    for t in tests {
+        let at = (t["file"].to_string(), u(&t["line"]));
+        c.expect(seen.insert(at.clone()), || {
+            format!("{id}: test {at:?} in two fixture findings")
+        });
+    }
+    // Each other test has at least a line in the opening.
+    let first = u(&f["prefix"]["lines"]);
+    let others = tests.len().saturating_sub(1) as u64;
+    c.expect(first >= 1 && u(&f["lines"]) >= first + others, || {
+        format!("{id}: lines {} for prefix lines {first}", f["lines"])
     });
 }
 

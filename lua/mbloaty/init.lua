@@ -17,8 +17,9 @@
 --                         line: `◂ split? 100 lines · cognitive complexity
 --                         22`, `◂ duplicate of
 --                         f · other/file.rs:27`, ...; and on the first of
---                         tests that differ only in literals:
---                         `◂ parametrize? 5 tests · 3 literals`
+--                         tests that differ only in literals or open
+--                         alike: `◂ parametrize? 5 tests · 3 literals`,
+--                         `◂ fixture? 3 tests share 6 statements`
 --   lua/mbloaty/text.lua  the words both use.
 -- See tools/bloaty: `bloaty summary` / `findings` / `metrics` --help.
 --
@@ -49,6 +50,7 @@ local enabled = true
 --   tables    {path -> number of table-driven-test candidates
 --             (`parametrize`)}, files and directories (listed, never
 --             marked: test code)
+--   setups    {path -> number of fixture candidates (`fixture`)}, the same
 --   smell     {path -> "hot" | "warm" | "noted"} (directories: "hot" only)
 --   files     {path -> summary group}
 --   findings  {path -> findings located in it, see `file_findings`}
@@ -65,16 +67,16 @@ local enabled = true
 local roots = {}
 -- Findings fetched, by their JSON names (`--kind` takes them too): listed
 -- per file (lens, quickfix, `B`)...
-local KINDS = { "duplicate", "unused", "single_impl_trait", "parametrize" }
+local KINDS = { "duplicate", "unused", "single_impl_trait", "parametrize", "fixture" }
 -- ...and those that mark a file as bloated (tree `•`). Long fns and
 -- test-heavy files are common and judgement calls, so they aren't fetched;
--- table-driven-test candidates are test code, so they're listed, never
--- marked.
+-- table-driven-test and fixture candidates are test code, so they're
+-- listed, never marked.
 local MARK_KINDS = { duplicate = true, unused = true, single_impl_trait = true }
 local DEBOUNCE_MS = 1500
 -- The `--json` format this code reads (bloaty's `schema` field). Older or
 -- unversioned output is refused, not misread.
-local SCHEMA = 12
+local SCHEMA = 13
 -- Called with (dir, root data) when a root's runs finish (the lens).
 local listeners = {}
 
@@ -161,14 +163,15 @@ local function run(args, cwd, cb)
 end
 
 -- Where a finding is, per file: { kind, name, line, detail, note, test,
--- dup, tests, literals, others = { {name, file, path, line} } }. A duplicate is at each
+-- dup, tests, literals, prefix, others = { {name, file, path, line} } }. A duplicate is at each
 -- copy, its others the other copies, `dup` the group (facts: `identical`,
 -- `crates`, `depends`, `differs`, `hint`, `rule`, copies with their
 -- signature `class`), `note` true for a note-tier one and `test` for a
 -- test copy (both listed, never marked); a single-impl trait's others are
 -- its impls; a table-driven-test candidate (`parametrize`) is at its first
 -- test, `tests` all of them ({name, path, line, end_line, lines,
--- identical}), `literals` {differ, of}.
+-- identical}), `literals` {differ, of}; a fixture candidate (`fixture`)
+-- too, with `tests` (no `identical`) and `prefix` {statements, lines}.
 local function file_findings(by_file, finding)
   local function at(path, entry)
     by_file[path] = by_file[path] or {}
@@ -191,6 +194,7 @@ local function file_findings(by_file, finding)
     at(finding.path, {
       kind = finding.kind, name = finding.name, line = finding.line,
       detail = finding.detail, others = finding.impls or {}, tests = finding.tests, literals = finding.literals,
+      prefix = finding.prefix,
     })
   end
 end
@@ -216,7 +220,7 @@ local function refresh(dir)
   r.gen = (r.gen or 0) + 1
   r.started, r.busy = vim.uv.clock_gettime("realtime"), true
   local gen, pending = r.gen, 2
-  local loc, marks, tables, smell, files, by_file = {}, {}, {}, {}, {}, {}
+  local loc, marks, tables, setups, smell, files, by_file = {}, {}, {}, {}, {}, {}, {}
   local refused, outdated = false, false
   local function done(code)
     refused = refused or code == 2
@@ -232,7 +236,8 @@ local function refresh(dir)
       -- Nothing cached: recomputed once the binary changes (see `data`).
       r.ready, r.outdated = false, binary_stamp()
     else
-      r.loc, r.marks, r.tables, r.smell, r.files, r.findings, r.ready = loc, marks, tables, smell, files, by_file, true
+      r.loc, r.marks, r.tables, r.setups, r.smell, r.files, r.findings, r.ready =
+        loc, marks, tables, setups, smell, files, by_file, true
     end
     redraw()
     for _, cb in ipairs(listeners) do
@@ -273,9 +278,10 @@ local function refresh(dir)
     for _, finding in ipairs(f and f.findings or {}) do
       if not MARK_KINDS[finding.kind] then
         file_findings(by_file, finding)
-        if finding.kind == "parametrize" then
+        local counts = ({ parametrize = tables, fixture = setups })[finding.kind]
+        if counts then
           up(finding.path, r.real, function(d)
-            tables[d] = (tables[d] or 0) + 1
+            counts[d] = (counts[d] or 0) + 1
           end)
         end
       -- Like the counts, marks are about implementation code: a marking

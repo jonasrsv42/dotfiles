@@ -125,13 +125,18 @@ function M.explain(state)
       end
     end
   end
-  -- Table-driven-test candidates: a file's with their tests, a
+  -- Table-driven-test and fixture candidates: a file's with their tests, a
   -- directory's counted.
   local tables = r.tables and r.tables[key]
-  if tables and node.type == "directory" then
-    table.insert(lines, string.format("%d table-driven-test %s (bloaty findings --kind parametrize %s)",
-      tables, tables == 1 and "candidate" or "candidates", node.path))
-  elseif tables then
+  local setups = r.setups and r.setups[key]
+  if node.type == "directory" then
+    for _, c in ipairs({ { tables, "table-driven-test", "parametrize" }, { setups, "fixture", "fixture" } }) do
+      if c[1] then
+        table.insert(lines, string.format("%d %s %s (bloaty findings --kind %s %s)",
+          c[1], c[2], c[1] == 1 and "candidate" or "candidates", c[3], node.path))
+      end
+    end
+  elseif tables or setups then
     for _, f in ipairs(text.by_line(r.findings[key])) do
       if f.tests then
         local names = {}

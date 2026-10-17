@@ -378,13 +378,210 @@
           "start_line": 25
         }
       ]
+    },
+    {
+      "category": "test",
+      "crate": "fxcore",
+      "detail": "3 tests open with the same 9 statements (9 lines): one setup fn they call",
+      "end_line": 179,
+      "file": "core/tests/setup.rs",
+      "kind": "fixture",
+      "line": 168,
+      "lines": 27,
+      "name": "log_replays",
+      "path": "<ws>/core/tests/setup.rs",
+      "prefix": {
+        "lines": 9,
+        "statements": 9
+      },
+      "start_line": 167,
+      "tests": [
+        {
+          "crate": "fxcore",
+          "end_line": 179,
+          "file": "core/tests/setup.rs",
+          "line": 168,
+          "lines": 11,
+          "name": "log_replays",
+          "path": "<ws>/core/tests/setup.rs",
+          "start_line": 167
+        },
+        {
+          "crate": "fxcore",
+          "end_line": 194,
+          "file": "core/tests/setup.rs",
+          "line": 182,
+          "lines": 12,
+          "name": "log_rotates",
+          "path": "<ws>/core/tests/setup.rs",
+          "start_line": 181
+        },
+        {
+          "crate": "fxcore",
+          "end_line": 209,
+          "file": "core/tests/setup.rs",
+          "line": 197,
+          "lines": 12,
+          "name": "log_trims",
+          "path": "<ws>/core/tests/setup.rs",
+          "start_line": 196
+        }
+      ]
+    },
+    {
+      "category": "test",
+      "crate": "fxcore",
+      "detail": "3 tests open with the same 5 statements (5 lines): one setup fn they call",
+      "end_line": 106,
+      "file": "core/tests/setup.rs",
+      "kind": "fixture",
+      "line": 98,
+      "lines": 15,
+      "name": "queue_drains_in_order",
+      "path": "<ws>/core/tests/setup.rs",
+      "prefix": {
+        "lines": 5,
+        "statements": 5
+      },
+      "start_line": 97,
+      "tests": [
+        {
+          "crate": "fxcore",
+          "end_line": 106,
+          "file": "core/tests/setup.rs",
+          "line": 98,
+          "lines": 8,
+          "name": "queue_drains_in_order",
+          "path": "<ws>/core/tests/setup.rs",
+          "start_line": 97
+        },
+        {
+          "crate": "fxcore",
+          "end_line": 116,
+          "file": "core/tests/setup.rs",
+          "line": 109,
+          "lines": 7,
+          "name": "queue_totals",
+          "path": "<ws>/core/tests/setup.rs",
+          "start_line": 108
+        },
+        {
+          "crate": "fxcore",
+          "end_line": 127,
+          "file": "core/tests/setup.rs",
+          "line": 119,
+          "lines": 8,
+          "name": "queue_keeps_the_last",
+          "path": "<ws>/core/tests/setup.rs",
+          "start_line": 118
+        }
+      ]
+    },
+    {
+      "category": "test",
+      "crate": "fxcore",
+      "detail": "3 tests open with the same 4 statements (4 lines): one setup fn they call",
+      "end_line": 29,
+      "file": "core/tests/setup.rs",
+      "kind": "fixture",
+      "line": 22,
+      "lines": 12,
+      "name": "totals_three_rows",
+      "path": "<ws>/core/tests/setup.rs",
+      "prefix": {
+        "lines": 4,
+        "statements": 4
+      },
+      "start_line": 21,
+      "tests": [
+        {
+          "crate": "fxcore",
+          "end_line": 29,
+          "file": "core/tests/setup.rs",
+          "line": 22,
+          "lines": 7,
+          "name": "totals_three_rows",
+          "path": "<ws>/core/tests/setup.rs",
+          "start_line": 21
+        },
+        {
+          "crate": "fxcore",
+          "end_line": 39,
+          "file": "core/tests/setup.rs",
+          "line": 32,
+          "lines": 7,
+          "name": "removes_the_last_row",
+          "path": "<ws>/core/tests/setup.rs",
+          "start_line": 31
+        },
+        {
+          "crate": "fxcore",
+          "end_line": 49,
+          "file": "core/tests/setup.rs",
+          "line": 42,
+          "lines": 7,
+          "name": "clears_every_row",
+          "path": "<ws>/core/tests/setup.rs",
+          "start_line": 41
+        }
+      ]
+    },
+    {
+      "category": "test",
+      "crate": "fxcore",
+      "detail": "3 tests open with the same 4 statements (4 lines): one setup fn they call",
+      "end_line": 146,
+      "file": "core/tests/setup.rs",
+      "kind": "fixture",
+      "line": 140,
+      "lines": 12,
+      "name": "log_boots",
+      "path": "<ws>/core/tests/setup.rs",
+      "prefix": {
+        "lines": 4,
+        "statements": 4
+      },
+      "start_line": 139,
+      "tests": [
+        {
+          "crate": "fxcore",
+          "end_line": 146,
+          "file": "core/tests/setup.rs",
+          "line": 140,
+          "lines": 6,
+          "name": "log_boots",
+          "path": "<ws>/core/tests/setup.rs",
+          "start_line": 139
+        },
+        {
+          "crate": "fxcore",
+          "end_line": 155,
+          "file": "core/tests/setup.rs",
+          "line": 149,
+          "lines": 6,
+          "name": "log_loads",
+          "path": "<ws>/core/tests/setup.rs",
+          "start_line": 148
+        },
+        {
+          "crate": "fxcore",
+          "end_line": 165,
+          "file": "core/tests/setup.rs",
+          "line": 158,
+          "lines": 7,
+          "name": "log_runs",
+          "path": "<ws>/core/tests/setup.rs",
+          "start_line": 157
+        }
+      ]
     }
   ],
   "hidden_pub": 0,
   "root": "<ws>",
-  "schema": 12,
+  "schema": 13,
   "shown": {
     "duplicate": 2,
+    "fixture": 4,
     "long_fn": 1,
     "parametrize": 2,
     "single_impl_trait": 1,
@@ -397,6 +594,7 @@
   },
   "totals": {
     "duplicate": 2,
+    "fixture": 4,
     "long_fn": 1,
     "parametrize": 2,
     "single_impl_trait": 1,

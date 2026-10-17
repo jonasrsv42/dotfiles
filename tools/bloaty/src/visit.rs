@@ -10,6 +10,7 @@
 pub(crate) mod body;
 mod cfg;
 pub(crate) mod macros;
+pub(crate) mod opening;
 pub(crate) mod sig;
 pub(crate) mod syntax;
 
@@ -187,7 +188,9 @@ pub struct FnFact {
 /// A `#[test]`-like fn without params (`cfg::is_test_fn`): what tells tests
 /// apart that could be one table-driven test (`findings::parametrize`).
 pub struct TestFn {
-    /// The inline `mod`s it sits in (its scope within the file).
+    /// The inline `mod`s it sits in (its scope within the file), each with
+    /// its cfgs (`imp #[cfg (unix)]`): cfg-exclusive mods of one name are
+    /// different scopes.
     pub scope: Vec<String>,
     /// Its attributes other than docs, as text (`should_panic`,
     /// `tokio::test (flavor = "multi_thread")`).
@@ -196,6 +199,9 @@ pub struct TestFn {
     pub literals: Vec<body::Literal>,
     /// The body's lines after its opening brace's (`body::TestBody`).
     pub lines: usize,
+    /// The statements opening the body a setup fn could take
+    /// (`opening::test_opening`).
+    pub opening: Vec<opening::TestStmt>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -261,6 +267,7 @@ pub fn collect(file: &syn::File, ctx: &Ctx) -> FileFacts {
         unchecked_depth: usize::from(file_test && !is_checked_test(&file.attrs, ctx.test_features)),
         doc_fence: None,
         inline_path: Vec::new(),
+        scope: Vec::new(),
         impl_ctx: Vec::new(),
         fn_stack: Vec::new(),
         fn_idents: HashMap::new(),
@@ -304,6 +311,8 @@ struct Visitor<'a> {
     /// Inside a ```code``` block of doc comments (a doctest).
     doc_fence: Option<DocFence>,
     inline_path: Vec<String>,
+    /// `inline_path` with each mod's cfgs (`TestFn::scope`).
+    scope: Vec<String>,
     impl_ctx: Vec<ImplCtx>,
     /// Indices into `facts.fns` of the fns we're inside.
     fn_stack: Vec<usize>,
@@ -517,7 +526,7 @@ impl Visitor<'_> {
         let test_fn = test.then(|| {
             let b = test_body(tokens.clone().unwrap_or_default(), body_line);
             TestFn {
-                scope: self.inline_path.clone(),
+                scope: self.scope.clone(),
                 attrs: s
                     .attrs
                     .iter()
@@ -526,6 +535,7 @@ impl Visitor<'_> {
                     .collect(),
                 literals: b.literals,
                 lines: b.lines,
+                opening: opening::test_opening(s.block),
             }
         });
         let forwards_to = match s.kind {
@@ -713,9 +723,17 @@ impl<'ast> Visit<'ast> for Visitor<'_> {
             });
             return;
         }
+        let mut cfgs = cfg_attrs(&m.attrs);
+        cfgs.retain(|c| c != "cfg (test)");
+        self.scope.push(if cfgs.is_empty() {
+            name.clone()
+        } else {
+            format!("{name} #[{}]", cfgs.join(", "))
+        });
         self.inline_path.push(name);
         visit::visit_item_mod(self, m);
         self.inline_path.pop();
+        self.scope.pop();
     }
 
     fn visit_item_use(&mut self, u: &'ast syn::ItemUse) {

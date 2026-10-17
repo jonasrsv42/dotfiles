@@ -71,7 +71,7 @@ fn group<'a>(summary: &'a Value, name: &str) -> &'a Value {
 #[test]
 fn summary_by_file() {
     let v = Ws::new("summary").run(&["summary", ".", "--by", "file", "--json"]);
-    assert_eq!(v["schema"], 12);
+    assert_eq!(v["schema"], 13);
     // What the fixture is for: each role still plays out.
     let level = |name: &str| -> Value { group(&v, name)["smell"]["level"].clone() };
     assert_eq!(level("core/src/hot.rs"), "hot");
@@ -119,7 +119,7 @@ fn summary_by_file() {
 #[test]
 fn findings() {
     let v = Ws::new("findings").run(&["findings", ".", "--json", "--top", "0"]);
-    assert_eq!(v["schema"], 12);
+    assert_eq!(v["schema"], 13);
     let kinds: Vec<&str> = v["findings"]
         .as_array()
         .unwrap()
@@ -132,6 +132,7 @@ fn findings() {
         "single_impl_trait",
         "long_fn",
         "parametrize",
+        "fixture",
     ] {
         assert!(kinds.contains(&kind), "no {kind} in {kinds:?}");
     }
@@ -200,13 +201,52 @@ fn findings() {
             ),
         ]
     );
+    // Fixture candidates (tests/setup.rs): (tests, statements). The pair
+    // and the three-statement openings aren't; the stray queue test
+    // doesn't hide the three; the six log tests split without overlap.
+    let fixtures: Vec<(Vec<&str>, u64)> = v["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|f| f["kind"] == "fixture")
+        .map(|f| {
+            let tests = f["tests"].as_array().unwrap();
+            (
+                tests.iter().map(|t| t["name"].as_str().unwrap()).collect(),
+                f["prefix"]["statements"].as_u64().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        fixtures,
+        [
+            (vec!["log_replays", "log_rotates", "log_trims"], 9),
+            (
+                vec![
+                    "queue_drains_in_order",
+                    "queue_totals",
+                    "queue_keeps_the_last"
+                ],
+                5
+            ),
+            (
+                vec![
+                    "totals_three_rows",
+                    "removes_the_last_row",
+                    "clears_every_row"
+                ],
+                4
+            ),
+            (vec!["log_boots", "log_loads", "log_runs"], 4),
+        ]
+    );
     golden("findings", &v);
 }
 
 #[test]
 fn metrics() {
     let v = Ws::new("metrics").run(&["metrics", ".", "--json"]);
-    assert_eq!(v["schema"], 12);
+    assert_eq!(v["schema"], 13);
     let sites: Vec<&str> = v["functions"]
         .as_array()
         .unwrap()

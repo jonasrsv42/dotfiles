@@ -101,6 +101,49 @@ Kinds, in the order worth working through:
                      mods never group; a literal that isn't data in ways
                      syntax can't tell still counts (an expression macro's
                      format string, an array length).
+  fixture            at least 3 tests of one scope (file and inline mod,
+                     with the mods' cfgs), with the same attributes,
+                     signature (so `.await` and `?` mean the same in a
+                     setup fn) and distinct names, that open with the same
+                     at least 4 statements, token for token, and have more
+                     after them. Advice: one setup fn they call, returning
+                     what the opening binds (a guard like `let _g =
+                     lock()` stays alive only that way). The opening
+                     amounts to something (at least 12 tokens, and a
+                     statement other than a `let`, or a `let` calling with
+                     arguments, awaiting, using `?` or branching) and
+                     stops before a statement a fn couldn't take: an item,
+                     a `let` without a value, a `#[cfg]`'d statement, a
+                     `return` (outside closures and async blocks), a macro
+                     other than the format!/assert!/vec!-like and
+                     log/tracing ones (it may hide either; their input
+                     holds no `return` or other macro, read as tokens),
+                     `pin!`, or a `let` (or assignment) whose value may
+                     borrow an earlier binding of the opening, as syntax
+                     shows it: a `ref` binding; on the value's own path
+                     (through blocks, `if`/`match` arms and `break`
+                     values; not in call arguments) a reference to, index
+                     into or method call on one (`&a.b`, `a[0]`,
+                     `a.get()`; `clone`/`to_owned`/`to_string`/`to_vec`
+                     aside), a reference to a temporary (`&open(1)`), a
+                     closure or async block that doesn't `move`. A test
+                     declaring items at its top level has no opening.
+                     Openings are compared at every length, so a test
+                     sharing only the first statements doesn't hide a
+                     longer opening others share; each test is in at most
+                     one finding: the one replacing the most statements
+                     (tests x statements) first, then the longer, then the
+                     earlier, and the others keep their remaining tests
+                     while still 3. Tests all in one parametrize candidate
+                     are left to it. Facts: `tests` (each with its
+                     `lines`), `prefix` {statements, lines (the first
+                     test's lines in the opening)}. The setup fn returns
+                     what the opening binds; where a later binding borrows
+                     an earlier one (only types can tell: `let p =
+                     Parser::new(&src)`), it stops before that binding or
+                     returns an owner. Limits as for parametrize; items an
+                     opaque macro later in a test might declare aren't
+                     seen.
   pass-through       (only with --kind pass-through) private-ish fns whose
                      body is one call passing their inputs to another
                      workspace fn (no claim when several workspace fns
@@ -111,7 +154,8 @@ duplicate notes come last. `category` says impl or test (a duplicate is
 impl if any copy is). `lines` counts code lines: the item's own (plus its
 impl blocks for unused types), the largest copy's lines after its
 signature (at least 1) for duplicates, test lines for test-heavy, the
-tests' lines (as above) for parametrize.
+tests' lines (as above) for parametrize, the tests' lines in their shared
+opening for fixture.
 `lines_saved` is at most what keeping one copy saves.
 
 JSON per finding: `path` (absolute) and `file` (relative to `root`), `line`

@@ -27,7 +27,7 @@ use std::hash::{Hash, Hasher};
 /// inside a multi-line literal).
 pub(crate) const MIN_PARAMETRIZE_TESTS: usize = 3;
 
-/// One test of a candidate group.
+/// One test of a candidate group (parametrize, fixture).
 #[derive(Serialize, Debug)]
 pub struct Row {
     #[serde(flatten)]
@@ -35,9 +35,10 @@ pub struct Row {
     /// Lines after its signature with code on them, not those wholly
     /// inside a literal (at least 1).
     pub lines: usize,
-    /// Its literals are all the same as another test's of the group: the
-    /// same code.
-    pub identical: bool,
+    /// Parametrize: its literals are all the same as another test's of the
+    /// group: the same code.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub identical: Option<bool>,
 }
 
 /// Literal positions of the bodies: where they differ, of how many.
@@ -152,7 +153,7 @@ fn candidate(cx: &Cx, f: &FileAnalysis, tests: &[Test]) -> Option<Finding> {
         .map(|(i, t)| Row {
             at: Loc::of_fn(cx.scan, f, t.func),
             lines: t.lines,
-            identical: tests.iter().enumerate().any(|(j, o)| j != i && same(o, t)),
+            identical: Some(tests.iter().enumerate().any(|(j, o)| j != i && same(o, t))),
         })
         .collect();
     let literals = Literals {
@@ -188,7 +189,7 @@ fn detail(rows: &[Row], literals: Literals) -> String {
     } else {
         format!("{lo}–{hi} lines each")
     };
-    let identical = rows.iter().filter(|r| r.identical).count();
+    let identical = rows.iter().filter(|r| r.identical == Some(true)).count();
     if identical > 0 {
         facts.push_str(&format!(", {identical} identical"));
     }
@@ -260,7 +261,7 @@ mod tests {
             .as_ref()
             .unwrap()
             .iter()
-            .map(|r| r.identical)
+            .map(|r| r.identical == Some(true))
             .collect();
         assert_eq!(identical, [true, true, false]);
         assert!(
@@ -311,6 +312,14 @@ mod tests {
         let mut firsts: Vec<String> = found(&src).into_iter().map(|f| f.at.name).collect();
         firsts.sort();
         assert_eq!(firsts, ["a_a", "i_a", "p_a", "s_a"]);
+        // Cfg-exclusive mods of one name are different scopes.
+        let src = format!(
+            "#[cfg(unix)]\nmod imp {{\n{}{}}}\n#[cfg(windows)]\nmod imp {{\n{}}}\n",
+            test("#[test]", "a", ONE, "1"),
+            test("#[test]", "b", ONE, "2"),
+            test("#[test]", "c", ONE, "3"),
+        );
+        assert!(found(&src).is_empty());
         // Tests taking params (rstest cases) aren't tests as written.
         let p = "#[test]\nfn p(x: u8) {\n    assert_eq!(f(1), 2);\n}\n";
         let src = format!(

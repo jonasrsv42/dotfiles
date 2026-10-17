@@ -45,7 +45,10 @@ Rust (src/):
   - `visit/cfg.rs`: which attributes make code test-only / checked-test.
   - `visit/body.rs`: forwarding detection (to other fns as a structured
     `Forward`, to `self`), a
-    body's logic count, body hashes (exact/shape/names).
+    body's logic count, body hashes (exact/shape/names), a test body's
+    literals and lines (`test_body`).
+  - `visit/opening.rs`: the opening of a test body a setup fn could take
+    (`test_opening`, `MIN_FIXTURE_STATEMENTS`).
   - `visit/sig.rs`: a fn's `Signature` as text, name left out (generics,
     receiver, parameter types, return type, qualifiers, the impl's Self
     type and trait); `differs` names the parts copies differ in.
@@ -73,7 +76,8 @@ Rust (src/):
 - `findings/mod.rs`: `Finding`, `Kind`, `Cx` (reference counts, uncertain
   crates), orchestration, `report`, `render`; one file per kind:
   `duplicate.rs`, `unused.rs`, `single_impl_trait.rs`, `pass_through.rs`,
-  `long_fn.rs`, `test_heavy.rs`, `parametrize.rs`. Duplicates also have
+  `long_fn.rs`, `test_heavy.rs`, `parametrize.rs`, `fixture.rs`.
+  Duplicates also have
   `duplicate/policy.rs` (`Rule`: a flat table from a group's facts to its
   tier and hint).
 - `metrics.rs`: the `metrics` command: every measured fn, its shape rows
@@ -159,7 +163,7 @@ Neovim (lua/mbloaty/):
   cognitive complexity; only on the fn, only below the ceiling (2 × bar:
   80 lines, cognitive complexity 30).
 - **Findings kinds.** duplicate, unused, single_impl_trait, long_fn,
-  test_heavy, parametrize, pass_through (opt-in). long_fn counts lines as the smell
+  test_heavy, parametrize, fixture, pass_through (opt-in). long_fn counts lines as the smell
   score does (`rollup::lines_excuse`): what a table, dispatch or allowed
   lint excuses under `--long-fn` isn't reported but counted in `excused`
   {kind: {excuse: n}}. Name-based, hints not proof; `pub`
@@ -214,6 +218,47 @@ Neovim (lua/mbloaty/):
   and counts a directory's, `<leader>bi` on a test shows the candidates
   it is a row of. Wording comes from the finding's `detail` (Lua builds
   only the lens's short form).
+- **Shared test setup (`fixture`): an exact claim, plus advice.** Tests
+  grouped as for parametrize (one scope, attributes as text,
+  `Signature`: `.await` and `?` mean the same in a setup fn, distinct
+  names), at least `MIN_FIXTURE_TESTS` (3) of which open with the same
+  `opening::MIN_FIXTURE_STATEMENTS` (4) or more statements, token for
+  token, each with something after. The claim is that fact ("N tests open
+  with the same S statements (L lines)"); the advice: one setup fn they
+  call, returning what the opening binds (a guard `let _g = lock()` stays
+  alive only that way). `visit::opening::test_opening` computes the
+  opening (per statement an exact hash, its tokens and lines):
+  it amounts to something (`MIN_PRELUDE_TOKENS`, and a statement other
+  than a `let` binding fresh values: `acts`) and stops before what a fn
+  couldn't take (`movable`: an item, a `let` without a value, a
+  `#[cfg]`/`#[cfg_attr]`, `return` outside closures/async blocks, a macro
+  outside `EXPRESSION_MACROS` or such a macro whose tokens hold `return`
+  or another macro, `pin!`; `may_borrow`: a `ref` binding or, on a `let`
+  value's or assignment's own path, through blocks, `if`/`match` arms and
+  `break` values, `&`/index/method call (`clone`-like aside) on an
+  earlier binding of the opening, `&` of a temporary, a non-`move`
+  closure or async block). A test declaring items at its top level has
+  no opening. The setup fn returns what the opening binds; where a later
+  binding borrows an earlier one through a call (`Parser::new(&src)`,
+  `v.push(&a)`: only types can tell), it stops before that binding or
+  returns an owner. That is advice, not claimed or noted (a note would
+  sit on nearly every finding: bumbum 12 of 13, about one a real
+  borrow). Scopes key on the inline mod path
+  with each mod's cfgs (`TestFn::scope`), so cfg-exclusive `mod imp`s
+  never group (parametrize too). Grouping is a prefix trie
+  (`fixture::clusters`: every length, so a stray test sharing only the
+  first statements doesn't hide a subgroup's longer opening; dispatch's
+  `shape::preludes` keeps its own first-statement clusters). Reported
+  without overlap (`fixture::report`): greedily the cluster replacing the
+  most statements (members × statements), then more statements, then the
+  earliest; its members leave the others, which stay while ≥ 3 and not
+  wholly inside one parametrize candidate. Facts: `tests` (rows: Loc +
+  the test's `lines`), `prefix` {statements, lines (the first test's
+  lines in the opening)}; finding `lines` = the tests' lines in
+  the opening (rank). Views as parametrize: no level, no `•`; lens on the
+  first test (`fixture? 3 tests share 6 statements`), quickfix claim +
+  `  shares i/N` rows, `B` lists/counts (`r.setups`), `<leader>bi` on a
+  member.
 
 ## Limits
 
@@ -298,6 +343,17 @@ bloaty's; when a claim would need them, bloaty makes none (counted in
   assertion message is the same token, and tables carry those well),
   array lengths and const generic arguments (`[0u8; 4]`), literals in
   patterns.
+- **fixture** compares openings token for token within one scope (as
+  parametrize: macro-written tests unseen, other files/mods never group).
+  Whether a setup fn returning the opening's bindings compiles needs
+  types: a borrow syntax shows on a value's own path stops the opening; a
+  method call on an earlier binding counts as one (`reserving.pool()`),
+  so openings stop there even when the result is owned (`rx.sender()`:
+  recall lost); a reference passed to a call (`open(&store)`) or an
+  effect (`v.push(&a)`) isn't checked: the setup fn may have to stop
+  before such a binding or return an owner. Items an opaque macro later in a test body might declare
+  aren't seen. Expression macros are matched by name, as in
+  `EXPRESSION_MACROS`.
 - Duplicates: names aren't resolved: same-named items in different files
   or crates (consts, helpers, imported types) count as the same, so equal
   text can be different code. Signatures and cfgs compare as normalized

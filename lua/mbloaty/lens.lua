@@ -5,8 +5,10 @@
 --   ◂ split? 100 lines · cognitive complexity 22
 --   ◂ simplify? cognitive complexity 17 · arm Op::Rebalance 16   (at a dispatch's arm)
 --   ◂ duplicate · pollen/sys.rs:27
--- and, on the first of tests differing only in literals (no `•`: tests),
+-- and, on the first of tests differing only in literals or opening with
+-- the same statements (no `•`: tests),
 --   ◂ parametrize? 5 tests · 3 literals
+--   ◂ fixture? 3 tests share 6 statements
 -- and, in blue, what was excused from the score (the whole story of a noted
 -- file's blue dot): `◂ table · 24 entries`, `◂ dispatch · 9 arms ·
 -- shared prefix in 4 arms (1 statement)`, `◂ allowed · too_many_lines`.
@@ -187,7 +189,7 @@ end
 
 --- Fills the quickfix list with the file's culprits, blue notes (each
 --- copy of a dispatch's shared prefix too), findings (other duplicate copies,
---- trait impls and a table-driven-test candidate's tests as entries of
+--- trait impls and a table-driven-test or fixture candidate's tests as entries of
 --- their own), duplicate notes and, when it has any, its panic sites (from
 --- a fresh `bloaty metrics` run).
 function M.qflist()
@@ -309,8 +311,8 @@ local function info_lines(fn, g, fl)
   return lines
 end
 
--- For a test (bloaty doesn't measure them): the table-driven-test
--- candidates it is a row of, under its name.
+-- For a test (bloaty doesn't measure them): the table-driven-test and
+-- fixture candidates it is in, under its name.
 local function covering_lines(row, fl, this)
   local lines = {}
   for _, f in ipairs(text.by_line(fl)) do
@@ -320,7 +322,7 @@ local function covering_lines(row, fl, this)
           table.insert(lines, text.fn_name(t.name))
         end
         table.insert(lines, "◂ " .. text.finding_note(f, this).list)
-        table.insert(lines, string.format("row %d/%d", i, #f.tests))
+        table.insert(lines, string.format("%s %d/%d", text.member(f), i, #f.tests))
         break
       end
     end

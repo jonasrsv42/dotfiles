@@ -185,7 +185,7 @@ workplace_vim() {
 alias v="workplace_vim"
 
 dual () {
-  xrandr --output eDP-1-1  --left-of HDMI-0 --output HDMI-0 --primary --auto
+  xrandr --output eDP-1-0  --left-of HDMI-0 --output HDMI-0 --primary --auto
 }
 
 single () {
